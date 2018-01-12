@@ -11,6 +11,7 @@ import bc.*;
 public class Player {
 	private static GameController gc;
 	private static Team myTeam; //Red or Blue
+	private static Team otherTeam;
 	private static Planet myPlanet; //(Earth or Mars)
     private static PlanetMap map;	//Initial map  
     private static VecUnit units; //The list of all known units - updated each turn in the main loop
@@ -23,6 +24,10 @@ public class Player {
         // Connect to the manager, starting the game
         gc = new GameController();
         myTeam = gc.team();
+        if (myTeam == Team.Blue)
+        	otherTeam = Team.Red;
+        else
+        	otherTeam = Team.Blue;
 
         //Start our research
         gc.queueResearch(UnitType.Rocket); // Allows us to build rockets (100 turns)   
@@ -192,6 +197,20 @@ public class Player {
     	
     	rangerMap = new double[(int) map.getWidth()][(int) map.getHeight()];
     	List<MapLocation> targets = new ArrayList<MapLocation>();
+    	int rangerCount = myLandUnits[UnitType.Ranger.ordinal()];
+    	
+    	//Add enemies
+    	for (Unit u:enemies) {
+    		//We want to be at our attack distance from each enemy    		
+    		VecMapLocation tiles =  gc.allLocationsWithin(u.location().mapLocation(), 50);
+    		for (int i=0; i<tiles.size(); i++) {
+    			MapLocation m = tiles.get(i);
+    			if (m.getX() >= 0 && m.getX() < map.getWidth() && m.getY() >= 0 && m.getY() < map.getHeight())
+    				targets.add(tiles.get(i));
+    		}
+    	}
+    	
+    	ripple(rangerMap, targets, 100, UnitType.Ranger, rangerCount);
     	
     	//Add Rockets (to board)
 		if (myPlanet == Planet.Earth) {
@@ -208,6 +227,20 @@ public class Player {
     	
     	mageMap = new double[(int) map.getWidth()][(int) map.getHeight()];
     	List<MapLocation> targets = new ArrayList<MapLocation>();
+    	int mageCount = myLandUnits[UnitType.Mage.ordinal()];
+    	
+    	//Add enemies
+    	for (Unit u:enemies) {
+    		//We want to be at our attack distance from each enemy    		
+    		VecMapLocation tiles =  gc.allLocationsWithin(u.location().mapLocation(), 50);
+    		for (int i=0; i<tiles.size(); i++) {
+    			MapLocation m = tiles.get(i);
+    			if (m.getX() >= 0 && m.getX() < map.getWidth() && m.getY() >= 0 && m.getY() < map.getHeight())
+    				targets.add(tiles.get(i));
+    		}
+    	}
+    	
+    	ripple(mageMap, targets, 100, UnitType.Mage, mageCount);
     	
     	//Add Rockets (to board)
 		if (myPlanet == Planet.Earth) {
@@ -245,7 +278,7 @@ public class Player {
     	
 		workerMap = new double[(int) map.getWidth()][(int) map.getHeight()];
 		List<MapLocation> targets = new ArrayList<MapLocation>();
-		int maxUnits = Math.min(myLandUnits[UnitType.Worker.ordinal()], 8);
+		int workerCount = myLandUnits[UnitType.Worker.ordinal()];
 		
 		//Add Karbonite deposits
 		for (int x=0; x<map.getWidth(); x++) {
@@ -255,7 +288,7 @@ public class Player {
 				}
 			}
 		}
-		ripple(workerMap, targets, 10, UnitType.Worker, maxUnits);
+		ripple(workerMap, targets, 10, UnitType.Worker, workerCount);
 		
 		//Add blueprints and damaged buildings
 		targets.clear();
@@ -263,14 +296,14 @@ public class Player {
 			targets.add(b.location().mapLocation());
 		for (Unit b: unitsToRepair)
 			targets.add(b.location().mapLocation());
-		ripple(workerMap, targets, 200, UnitType.Worker, maxUnits);
+		ripple(workerMap, targets, 200, UnitType.Worker, Math.min(workerCount, 8));
 		
 		//Add Rockets (to board)
 		if (myPlanet == Planet.Earth) {
     		targets.clear();
     		for (Unit b: rockets)
     			targets.add(b.location().mapLocation());
-    		ripple(workerMap, targets, 1000, UnitType.Worker, maxUnits);
+    		ripple(workerMap, targets, 1000, UnitType.Worker, Math.min(workerCount, 8));
 		}
     }
     
@@ -336,13 +369,18 @@ public class Player {
      */
     private static Direction bestMove(Unit t, double[][] gravityMap) {
     	Direction best = null;
+    	
+    	if (!t.location().isOnMap())
+    		return null;
+    	
     	MapLocation myLoc = t.location().mapLocation();
     	double bestScore = gravityMap[myLoc.getX()][myLoc.getY()];
     	//debug("bestMove from " + myLoc + " current score " + bestScore);
     	MapLocation[] options = allMoveNeighbours(myLoc);
     	for (MapLocation test: options) {
     		Direction d = myLoc.directionTo(test);
-    		if (gravityMap[test.getX()][test.getY()] > bestScore) {
+    		if (gravityMap[test.getX()][test.getY()] > bestScore ||
+    				(gravityMap[test.getX()][test.getY()] == bestScore && randomness.nextBoolean())) {
     			bestScore = gravityMap[test.getX()][test.getY()];
     			best = d;
     		}
@@ -378,6 +416,7 @@ public class Player {
     private static List<Unit> unitsToHeal; //List of units that need healing
     private static List<Unit> unitsToRepair; //List of buildings that need repair
     private static List<Unit> rockets; //List of rockets (to Load into if on Earth, or unload from on Mars)
+    private static List<Unit> enemies; //List of all enemy units in sight
     
     /*
      * Loop through the units we are aware of and update our cache
@@ -393,6 +432,7 @@ public class Player {
     	unitsToHeal = new ArrayList<Unit>();
     	unitsToRepair = new ArrayList<Unit>();
     	rockets = new ArrayList<Unit>();
+    	enemies = new ArrayList<Unit>();
     	
     	for (int i = 0; i < units.size(); i++) {
             Unit unit = units.get(i);
@@ -421,6 +461,8 @@ public class Player {
             			if (unit.health() < unit.maxHealth())
             				unitsToHeal.add(unit);
             		}
+            	} else { //enemies
+            		enemies.add(unit);
             	}
             }
     	}
@@ -444,23 +486,6 @@ public class Player {
     	if (unitInfo.length() > 0)
     		debug("In space: " + unitInfo);
     	
-    }
-    
-    /*
-     * Returns an array containing all the passable neighbours of a map location
-     * Passable means on the map and not water
-     */
-    private static MapLocation[] allPassableNeighbours(MapLocation l) {
-    	List<MapLocation> result = new ArrayList<MapLocation>();
-    	VecMapLocation all = gc.allLocationsWithin(l, 2);
-    	
-    	for (int i=0; i<all.size(); i++) {
-    		MapLocation test = all.get(i);
-			if (passable[test.getX()][test.getY()])
-				result.add(test);
-    	}
-    	
-    	return result.toArray(new MapLocation[result.size()]);
     }
    
     /*
@@ -537,30 +562,8 @@ public class Player {
         	}	                    
             
         	//Do we want to move to a better location
-            if (gc.isMoveReady(id)) {
-            	Direction d = bestMove(unit, getGravityMap(UnitType.Worker));
-            	if (d != null) {
-            		MapLocation dest = loc.add(d);
-            		if (gc.canMove(id, d)) {
-            			gc.moveRobot(id, d);
-            			unitAt[loc.getX()][loc.getY()] = null;
-            			unitAt[dest.getX()][dest.getY()] = unit;
-            		} else if (unit.location().isInGarrison()) {
-            			Unit structure = unitAt[loc.getX()][loc.getY()];
-            			if (structure != null && gc.canUnload(structure.id(), d)) {
-            				gc.unload(structure.id(), d);
-            				unitAt[dest.getX()][dest.getY()] = unit;
-            			}
-            		} else {
-            			Unit structure = unitAt[dest.getX()][dest.getY()];
-            			if (structure != null && gc.canLoad(structure.id(), id)) {
-            				unitAt[loc.getX()][loc.getY()] = null;
-            				gc.load(structure.id(), id);
-            				debug("Loading Worker into garison at " + dest);
-            			}
-            		}
-            	}
-            }
+            if (gc.isMoveReady(id))
+            	moveUnit(unit);
             
             //Can we help build something
             if (unit.workerHasActed() == 0) {            
@@ -617,8 +620,7 @@ public class Player {
     	PlanetMap mars = gc.startingMap(Planet.Mars);
     	
     	//Pick a location that is unused, open, has room to unload and will be near an asteroid strike around the time we arrive
-    	long arrivalTime = gc.round() + gc.currentDurationOfFlight();
-    	AsteroidPattern asteroids = gc.asteroidPattern(); //TODO
+    	//TODO
     	
     	MapLocation target = null;
     	boolean found = false;
@@ -719,19 +721,120 @@ public class Player {
     }
     
     private static void manageMage(Unit unit) {
-    	
+    	manageRanger(unit);
     }
     
+    /*
+     * manageRanger
+     * 
+     * As a combat unit we attack enemies and scout
+     */
     private static void manageRanger(Unit unit) {
+    	int id = unit.id();
+    	boolean canShoot = (unit.attackHeat() < 10);
     	
+    	//Rangers need to be mobile - we need to be able to shoot then move or to move then shoot
+    	
+    	if (canShoot) {
+    		int targetId = bestTarget(unit);
+    		if (targetId > -1) {
+    			gc.attack(id, targetId);
+        		canShoot = false;
+    		}
+    	}  	
+    	
+    	//Do we want to move to a better location
+        if (gc.isMoveReady(id))
+        	moveUnit(unit);
+        	
+        if (canShoot) {
+    		int targetId = bestTarget(unit);
+    		if (targetId > -1) {
+    			gc.attack(id, targetId);
+        		canShoot = false;
+    		}
+    	}  
     }
     
     private static void manageKnight(Unit unit) {
-    	
+    	manageRanger(unit);
     }
     
+    /*
+     * manageHealer
+     * 
+     * We don't fight so we heal anyone in range
+     */
     private static void manageHealer(Unit unit) {
+    	int id = unit.id();
     	
+    	if (gc.isMoveReady(id))
+        	moveUnit(unit);
+    	
+    	if (unit.location().isOnMap()) {
+	    	VecUnit inSight = gc.senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.attackRange(), myTeam);
+	    	for (int i=0; i<inSight.size(); i++) {
+	    		Unit ally = inSight.get(i);
+	    		if (ally.health() < ally.maxHealth() && gc.canHeal(id, ally.id())) {
+	    			gc.heal(id, ally.id());
+	    			break;
+	    		}
+	    	}
+    	}
+    }
+    
+    /*
+     * Look for a target in range and pick the one with the most damage to fire on
+     */
+    private static int bestTarget(Unit unit) {
+    	if (!unit.location().isOnMap())
+    		return -1;
+    	
+    	VecUnit inSight = gc.senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.attackRange(), otherTeam);
+    	//Pick the enemy with the most damage that is in range
+    	int best = -1, id = unit.id();
+    	long mostDamage = 0;
+    	
+    	for (int i=0; i<inSight.size(); i++) {
+    		Unit enemy = inSight.get(i);
+    		if (gc.canAttack(id, enemy.id()) && enemy.maxHealth() - enemy.health() > mostDamage) {
+    			best = enemy.id();
+    			mostDamage = enemy.maxHealth() - enemy.health();
+    		}
+    	}
+    	
+    	return best;
+    }
+    
+    
+    private static void moveUnit(Unit unit) {
+    	if (!unit.location().isOnMap())
+    		return;
+    	
+    	Direction d = bestMove(unit, getGravityMap(unit.unitType()));
+    	MapLocation loc = unit.location().mapLocation();
+    	int id = unit.id();
+    	
+    	if (d != null) {
+    		MapLocation dest = loc.add(d);
+    		if (gc.canMove(id, d)) {
+    			gc.moveRobot(id, d);
+    			unitAt[loc.getX()][loc.getY()] = null;
+    			unitAt[dest.getX()][dest.getY()] = unit;
+    		} else if (unit.location().isInGarrison()) {
+    			Unit structure = unitAt[loc.getX()][loc.getY()];
+    			if (structure != null && gc.canUnload(structure.id(), d)) {
+    				gc.unload(structure.id(), d);
+    				unitAt[dest.getX()][dest.getY()] = unit;
+    			}
+    		} else {
+    			Unit structure = unitAt[dest.getX()][dest.getY()];
+    			if (structure != null && gc.canLoad(structure.id(), id)) {
+    				unitAt[loc.getX()][loc.getY()] = null;
+    				gc.load(structure.id(), id);
+    			}
+    		}
+    	}	
     }
     
     private static void runPlanet() {
@@ -755,13 +858,13 @@ public class Player {
 	                		manageWorker(unit);
 	                		break;
 	                	case Knight:
-	                		//manageKnight(unit);
+	                		manageKnight(unit);
 	                		break;
 	                	case Ranger:
-	                		//manageRanger(unit);
+	                		manageRanger(unit);
 	                		break;
 	                	case Mage:
-	                		//manageMage(unit);
+	                		manageMage(unit);
 	                		break;
 	                	case Rocket:
 	                		manageRocket(unit);
@@ -769,6 +872,8 @@ public class Player {
 	                	case Factory:
 	                		manageFactory(unit);
 	                		break;
+	                	case Healer:
+	                		manageHealer(unit);
 	                	default: //Unknown unit
 	                		break;
 	                	}
