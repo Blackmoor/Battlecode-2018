@@ -2,6 +2,6 @@
 <classpath>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
 	<classpathentry kind="src" path=""/>
-	<classpathentry kind="lib" path="battlecode.jar"/>
+	<classpathentry kind="lib" path="C:/Users/daz/Documents/Development/bc18-scaffold/battlecode/java"/>
 	<classpathentry kind="output" path=""/>
 </classpath>
