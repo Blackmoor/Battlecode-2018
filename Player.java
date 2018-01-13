@@ -13,7 +13,9 @@ public class Player {
 	private static Team myTeam; //Red or Blue
 	private static Team otherTeam;
 	private static Planet myPlanet; //(Earth or Mars)
-    private static PlanetMap map;	//Initial map  
+    private static PlanetMap map;	//Initial map 
+    private static MapAnalyser mars;
+    
     private static VecUnit units; //The list of all known units - updated each turn in the main loop
     private static VecUnit unitsInSpace; //The list of all units on the way to mars
     private static int totalKarbonite; //How much Karbonite is available on the starting map
@@ -42,7 +44,7 @@ public class Player {
         myPlanet = gc.planet();
         map = gc.startingMap(myPlanet);  	
     	scanMap();
-    	debug("Total Karbonite on " + myPlanet + " is " + totalKarbonite);
+    	//debug("Total Karbonite on " + myPlanet + " is " + totalKarbonite);
         
         runPlanet();
     }
@@ -87,9 +89,9 @@ public class Player {
      * We create these maps each turn that a unit needs to move and only as needed
      */
     
+    private static boolean nothingToMine = false; //Set to true once all the karbonite has been mined on Earth
     private static long[][] karboniteMap; //Initialised with starting values and updated as we sense tiles with new values
     private static boolean[][] passable; //Set to true if the location is passable (i.e. not water) - fixed
-    private static Unit[][] unitAt; //Updated each turn with all the units we know about
     
     private static double[][] workerMap = null;
     private static double[][] mageMap = null;
@@ -97,12 +99,28 @@ public class Player {
     private static double[][] healerMap = null;
     private static double[][] knightMap = null;
     
+    /*
+     * Returns the unit at the given location or null if there isn't one
+     */
+    private static Unit unitAt(int x, int y) {
+    	MapLocation m = new MapLocation(myPlanet, x, y);
+    	return unitAt(m);
+    }
+    
+    private static Unit unitAt(MapLocation m) {
+    	if (!gc.canSenseLocation(m) || !gc.hasUnitAtLocation(m))
+    		return null;
+    		
+    	return gc.senseUnitAtLocation(m);
+    }
+    
     private static boolean structureAt(int x, int y) {
-    	if (unitAt[x][y] == null)
+    	Unit u = unitAt(x, y);
+    	if (u == null)
     		return false;
-    	if (unitAt[x][y].unitType() == UnitType.Factory)
+    	if (u.unitType() == UnitType.Factory)
     		return true;
-    	if (unitAt[x][y].unitType() == UnitType.Rocket)
+    	if (u.unitType() == UnitType.Rocket)
     		return true;
     	return false;
     }
@@ -133,16 +151,15 @@ public class Player {
     		
         	for (MapLocation me: edge) {
         		if (status[me.getX()][me.getY()] != CLOSED) {
-    				Unit unit = unitAt[me.getX()][me.getY()];
-    				if (unit != null && unit.team() == myTeam) {
-    					if (match == null || match == unit.unitType()) {
-    						matchCount++;
-    						if (distance > 1 && matchCount >= max) { //We have reached the cutoff point
-    							//debug("Ripple match count met: complete at distance " + distance);
-    							return;
-    						}
-    					}
-    				}
+        			Unit unit = unitAt(me);
+    				if (unit != null && unit.team() == myTeam &&
+    						(match == null || match == unit.unitType())) {
+						matchCount++;
+						if (distance > 1 && matchCount >= max) { //We have reached the cutoff point
+							//debug("Ripple match count met: complete at distance " + distance);
+							return;
+						}
+					}
         			
 	        		status[me.getX()][me.getY()] = CLOSED;
 	        		//debug("Ripple SEEN " + me);
@@ -184,6 +201,55 @@ public class Player {
     }
     
     /*
+     * addRockets
+     * 
+     * Adds in gravity for all active rockets on earth looking for passengers
+     */
+    private static void addRockets(double[][] map, double points, UnitType match, int max) {
+    	List<MapLocation> targets = new ArrayList<MapLocation>();
+    	//Add Rockets that are ready to board and have space
+		if (myPlanet == Planet.Earth) {
+    		for (Unit b: rockets)
+    			targets.add(b.location().mapLocation());
+    		ripple(map, targets, points, match, max);
+		}
+    }
+    
+    /*
+     * Returns true if a unit can attack and damage us
+     */
+    private static boolean isCombatUnit(Unit u) {
+    	switch (u.unitType()) {
+    	case Knight:
+    	case Ranger:
+    	case Mage:
+    		return true;
+    	default:
+    		return false;
+    	}
+    }
+    
+    /*
+     * addDangerZones
+     * 
+     * subtracts from all tiles on the map within the attack range of enemy units we can see
+     */
+    private static void addDangerZones(double[][] map) {
+    	//Add enemies danger zones
+    	for (Unit u:enemies) {
+    		if (isCombatUnit(u)) { //This unit can attack and damage us
+	    		MapLocation enemyLoc = u.location().mapLocation();
+	    		VecMapLocation tiles =  gc.allLocationsWithin(enemyLoc, u.attackRange());
+	    		for (int i=0; i<tiles.size(); i++) {
+	    			MapLocation m = tiles.get(i);
+	    			int x = m.getX(), y = m.getY();
+	    			map[x][y] -= 50;
+	    		}
+    		}
+    	}	
+    }
+    
+    /*
      * Rangers are combat units
      * They move towards enemy units, our workers (to protect them) and rockets.
      * 
@@ -201,24 +267,24 @@ public class Player {
     	
     	//Add enemies
     	for (Unit u:enemies) {
-    		//We want to be at our attack distance from each enemy    		
-    		VecMapLocation tiles =  gc.allLocationsWithin(u.location().mapLocation(), 50);
+    		//We want to be at our attack distance from each enemy
+    		MapLocation enemyLoc = u.location().mapLocation();
+    		VecMapLocation tiles =  gc.allLocationsWithin(enemyLoc, 50);
     		for (int i=0; i<tiles.size(); i++) {
     			MapLocation m = tiles.get(i);
-    			if (m.getX() >= 0 && m.getX() < map.getWidth() && m.getY() >= 0 && m.getY() < map.getHeight())
-    				targets.add(tiles.get(i));
+    			//We only want the tiles that are a reasonable distance from the enemy
+    			if (m.distanceSquaredTo(enemyLoc) > 30)
+    				targets.add(m);
+    			else {
+    				int x = m.getX(), y = m.getY();
+    				rangerMap[x][y] -= 50;
+    			}
     		}
     	}
-    	
+    	//debug("updateRangerMap: added " + enemies.size() + " enemies and " + targets.size() + " tiles");
     	ripple(rangerMap, targets, 100, UnitType.Ranger, rangerCount);
     	
-    	//Add Rockets (to board)
-		if (myPlanet == Planet.Earth) {
-    		targets.clear();
-    		for (Unit b: rockets)
-    			targets.add(b.location().mapLocation());
-    		ripple(rangerMap, targets, 1000, UnitType.Ranger, 1);
-		}
+    	addRockets(rangerMap, 1000, UnitType.Ranger, 1);
     }
     
     private static void updateMageMap() {
@@ -231,47 +297,69 @@ public class Player {
     	
     	//Add enemies
     	for (Unit u:enemies) {
-    		//We want to be at our attack distance from each enemy    		
-    		VecMapLocation tiles =  gc.allLocationsWithin(u.location().mapLocation(), 50);
+    		//We want to be at our attack distance from each enemy
+    		MapLocation enemyLoc = u.location().mapLocation();
+    		VecMapLocation tiles =  gc.allLocationsWithin(enemyLoc, 30);
     		for (int i=0; i<tiles.size(); i++) {
     			MapLocation m = tiles.get(i);
-    			if (m.getX() >= 0 && m.getX() < map.getWidth() && m.getY() >= 0 && m.getY() < map.getHeight())
-    				targets.add(tiles.get(i));
+    			//We only want the tiles that are a reasonable distance from the enemy
+    			if (m.distanceSquaredTo(enemyLoc) > 20)
+    				targets.add(m);
+    			else {
+    				int x = m.getX(), y = m.getY();
+    				mageMap[x][y] -= 50;
+    			}
     		}
     	}
     	
     	ripple(mageMap, targets, 100, UnitType.Mage, mageCount);
     	
-    	//Add Rockets (to board)
-		if (myPlanet == Planet.Earth) {
-    		targets.clear();
-    		for (Unit b: rockets)
-    			targets.add(b.location().mapLocation());
-    		ripple(mageMap, targets, 1000, UnitType.Mage, 1);
-		}
+    	addRockets(mageMap, 1000, UnitType.Mage, 1);
     }
     
+    /*
+     * Healers need to move towards damaged allies (not structures)
+     * Like all other units they will board waiting rockets
+     */
     private static void updateHealerMap() {
     	if (healerMap != null) //We have already done it
     		return;
     	
     	healerMap = new double[(int) map.getWidth()][(int) map.getHeight()];
     	List<MapLocation> targets = new ArrayList<MapLocation>();
+    	int healerCount = myLandUnits[UnitType.Healer.ordinal()];
     	
-    	//Add Rockets (to board)
-		if (myPlanet == Planet.Earth) {
-    		targets.clear();
-    		for (Unit b: rockets)
-    			targets.add(b.location().mapLocation());
-    		ripple(healerMap, targets, 1000, UnitType.Healer, 1);
-		}
+    	//Add damaged units
+    	for (Unit u:unitsToHeal)
+    		targets.add(u.location().mapLocation());
+    	ripple(healerMap, targets, 100, UnitType.Healer, healerCount);
+    	
+    	addDangerZones(healerMap);
+		addRockets(healerMap, 1000, UnitType.Healer, 1);
     }
     
     private static void updateKnightMap() {
-    	updateRangerMap();
-    	knightMap = rangerMap;
+    	if (knightMap != null) //We have already done it
+    		return;
+    	
+    	knightMap = new double[(int) map.getWidth()][(int) map.getHeight()];
+    	List<MapLocation> targets = new ArrayList<MapLocation>();
+    	int knightCount = myLandUnits[UnitType.Knight.ordinal()];
+    	
+    	//Add enemies
+    	for (Unit u:enemies)
+    		targets.add(u.location().mapLocation());
+    	
+    	ripple(knightMap, targets, 100, UnitType.Knight, knightCount);
+    	
+    	addRockets(knightMap, 1000, UnitType.Knight, 1);
     }
     
+    /*
+     * Workers are the busiest!
+     * They respond to Karbonite, blueprints and damaged structures
+     * Like all units they also board rockets when built
+     */
     private static void updateWorkerMap() {
     	if (workerMap != null) //We have already done it
     		return;
@@ -281,14 +369,18 @@ public class Player {
 		int workerCount = myLandUnits[UnitType.Worker.ordinal()];
 		
 		//Add Karbonite deposits
-		for (int x=0; x<map.getWidth(); x++) {
-			for (int y=0; y<map.getHeight(); y++) {
-				if (karboniteMap[x][y] > 0) {
-					targets.add(new MapLocation(myPlanet, x, y));
+		if (!nothingToMine) {
+			for (int x=0; x<map.getWidth(); x++) {
+				for (int y=0; y<map.getHeight(); y++) {
+					if (karboniteMap[x][y] > 0) {
+						targets.add(new MapLocation(myPlanet, x, y));
+					}
 				}
 			}
+			ripple(workerMap, targets, 10, UnitType.Worker, workerCount);
+			if (myPlanet == Planet.Earth && targets.size() == 0)
+				nothingToMine = true;
 		}
-		ripple(workerMap, targets, 10, UnitType.Worker, workerCount);
 		
 		//Add blueprints and damaged buildings
 		targets.clear();
@@ -298,13 +390,8 @@ public class Player {
 			targets.add(b.location().mapLocation());
 		ripple(workerMap, targets, 200, UnitType.Worker, Math.min(workerCount, 8));
 		
-		//Add Rockets (to board)
-		if (myPlanet == Planet.Earth) {
-    		targets.clear();
-    		for (Unit b: rockets)
-    			targets.add(b.location().mapLocation());
-    		ripple(workerMap, targets, 1000, UnitType.Worker, Math.min(workerCount, 8));
-		}
+		addDangerZones(workerMap);
+		addRockets(workerMap, 1000, UnitType.Worker, Math.min(workerCount, 8));
     }
     
     private static void clearGavityMaps() {
@@ -347,6 +434,9 @@ public class Player {
      * and return the total karbonite on the map
      * 
      * This is called once on the first turn
+     * 
+     * TODO - analyse Mars and count how many separate areas there are and how much karbonite will appear in each area
+     * We need to send a rocket to each area
      */
     private static void scanMap() {
     	totalKarbonite = 0;
@@ -355,13 +445,19 @@ public class Player {
     	
     	for (int x = 0; x<map.getWidth(); x++) {
     		for (int y=0; y<map.getHeight(); y++) {
-    			karboniteMap[x][y] = map.initialKarboniteAt(new MapLocation(myPlanet, x, y));
-    			totalKarbonite += karboniteMap[x][y];
     			MapLocation here = new MapLocation(myPlanet, x, y);
+    			karboniteMap[x][y] = map.initialKarboniteAt(here);
+    			totalKarbonite += karboniteMap[x][y];    			
     			passable[x][y] = (map.onMap(here) && map.isPassableTerrainAt(here) > 0);
     		}
     	}
-    }
+    	
+    	if (myPlanet == Planet.Earth) {
+    		if (totalKarbonite == 0)
+    			nothingToMine = true;
+    		mars = new MapAnalyser(gc);
+    	}
+    }   
     
     /*
      * Given a gravity map we find the highest scoring tile adjacent to us
@@ -376,7 +472,7 @@ public class Player {
     	MapLocation myLoc = t.location().mapLocation();
     	double bestScore = gravityMap[myLoc.getX()][myLoc.getY()];
     	//debug("bestMove from " + myLoc + " current score " + bestScore);
-    	MapLocation[] options = allMoveNeighbours(myLoc);
+    	List<MapLocation> options = allMoveNeighbours(myLoc);
     	for (MapLocation test: options) {
     		Direction d = myLoc.directionTo(test);
     		if (gravityMap[test.getX()][test.getY()] > bestScore ||
@@ -389,16 +485,24 @@ public class Player {
 		return best;
     }
     
-    //For all tiles we can sense
+    /*
+     * updateKarbonite
+     * 
+     * Use current sense data to update any changes to karbonite
+     * If Earth now has no Karbonite we can skip the update as no more will appear
+     */
     private static void updateKarbonite() {
-    	for (int x = 0; x<map.getWidth(); x++) {
-    		for (int y=0; y<map.getHeight(); y++) {
-    			MapLocation test = new MapLocation(myPlanet, x, y);
-    			if (gc.canSenseLocation(test)) {
-    				karboniteMap[x][y] = gc.karboniteAt(test);
-    			}
-    		}
-    	}
+    	
+    	if (!nothingToMine) {
+	    	for (int x = 0; x<map.getWidth(); x++) {
+	    		for (int y=0; y<map.getHeight(); y++) {
+	    			MapLocation test = new MapLocation(myPlanet, x, y);
+	    			if (gc.canSenseLocation(test)) {
+	    				karboniteMap[x][y] = gc.karboniteAt(test);
+	    			}
+	    		}
+	    	}
+    	}	    	
     	
     	if (myPlanet == Planet.Mars) {
     		if (gc.asteroidPattern().hasAsteroid(gc.round())) {
@@ -425,7 +529,6 @@ public class Player {
     private static void updateUnits() {
         units = gc.units(); //All the units we can see on the map (but not the ones in garisons)
         unitsInSpace = gc.unitsInSpace(); //All the units in space
-    	unitAt = new Unit[(int) map.getWidth()][(int) map.getHeight()];
     	myLandUnits = new int[UnitType.values().length];
     	mySpaceUnits = new int[UnitType.values().length];
     	unitsToBuild = new ArrayList<Unit>();
@@ -438,10 +541,6 @@ public class Player {
             Unit unit = units.get(i);
             
             if (unit.location().isOnMap()) {
-            	int x = unit.location().mapLocation().getX();
-            	int y = unit.location().mapLocation().getY();
-
-            	unitAt[x][y] = unit;
             	if (unit.team() == myTeam) {
             		myLandUnits[unit.unitType().ordinal()]++;
             		if (unit.unitType().equals(UnitType.Factory) || unit.unitType().equals(UnitType.Rocket)) {
@@ -472,6 +571,7 @@ public class Player {
     		mySpaceUnits[unit.unitType().ordinal()]++;
     	}
     	
+    	/*
     	String unitInfo = "";
     	for (UnitType t: UnitType.values())
     		if (myLandUnits[t.ordinal()] > 0)
@@ -485,6 +585,7 @@ public class Player {
     			unitInfo += t + " = " + mySpaceUnits[t.ordinal()] + " ";
     	if (unitInfo.length() > 0)
     		debug("In space: " + unitInfo);
+    	*/
     	
     }
    
@@ -492,24 +593,24 @@ public class Player {
      * Returns an array containing all the open neighbours of a map location
      * Open means on the map and not water and doesn't contain a unit
      */
-    private static MapLocation[] allOpenNeighbours(MapLocation l) {
+    private static List<MapLocation> allOpenNeighbours(MapLocation l) {
     	List<MapLocation> result = new ArrayList<MapLocation>();
     	VecMapLocation all = gc.allLocationsWithin(l, 2);
     	
     	for (int i=0; i<all.size(); i++) {
     		MapLocation test = all.get(i);
-    		if (passable[test.getX()][test.getY()] && unitAt[test.getX()][test.getY()] == null)
+    		if (passable[test.getX()][test.getY()] && !gc.hasUnitAtLocation(test))
 				result.add(test);
 		}
     	
-    	return result.toArray(new MapLocation[result.size()]);
+    	return result;
     }
     
     /*
      * Factories and Rockets are structures
      */
-    private static boolean isStructure(Unit u) {
-    	if (u == null)
+    private static boolean isOurStructure(Unit u) {
+    	if (u == null || u.team() != myTeam)
     		return false;
     	switch (u.unitType()) {
     	case Factory:
@@ -524,19 +625,20 @@ public class Player {
      * Returns an array containing all the neighbours of a map location we can move to
      * Open means on the map and not water and doesn't contain a mobile unit (but can contain structures)
      */
-    private static MapLocation[] allMoveNeighbours(MapLocation l) {
+    private static List<MapLocation> allMoveNeighbours(MapLocation l) {
     	List<MapLocation> result = new ArrayList<MapLocation>();
     	VecMapLocation all = gc.allLocationsWithin(l, 2);
     	
     	for (int i=0; i<all.size(); i++) {
     		MapLocation test = all.get(i);
     		int x = test.getX(), y = test.getY();
+    		Unit u = unitAt(test);
 			if (passable[x][y] &&
-					(unitAt[x][y] == null || isStructure(unitAt[x][y])))
+					(u == null || isOurStructure(u)))
 				result.add(test);
 		}
     	
-    	return result.toArray(new MapLocation[result.size()]);
+    	return result;
     }
     
     private static void manageWorker(Unit unit) {
@@ -547,10 +649,10 @@ public class Player {
     	
     	if (!unit.location().isInSpace() && unit.location().isOnMap()) {
     		MapLocation loc = unit.location().mapLocation();
-        	MapLocation[] options = allOpenNeighbours(loc);
+        	List<MapLocation> options = allOpenNeighbours(loc);
         	Direction dir = null;
-        	if (options.length > 0)
-        		dir = loc.directionTo(options[0]);
+        	if (!options.isEmpty())
+        		dir = loc.directionTo(options.get(0));
 
         	//Check to see if we can replicate
         	if (dir != null && myLandUnits[UnitType.Worker.ordinal()] + mySpaceUnits[UnitType.Worker.ordinal()] < 16) {
@@ -616,21 +718,14 @@ public class Player {
         }
     }
     
-    private static MapLocation launchDestination(Unit unit) {
-    	PlanetMap mars = gc.startingMap(Planet.Mars);
+    private static int marsZone = 0;
+    
+    private static MapLocation launchDestination() {
+    	//Pick a random tile in the given zone
+    	MapZone zone = mars.zones.get(marsZone);
+    	int size = zone.tiles.size();
     	
-    	//Pick a location that is unused, open, has room to unload and will be near an asteroid strike around the time we arrive
-    	//TODO
-    	
-    	MapLocation target = null;
-    	boolean found = false;
-    	
-    	while (!found) {
-    		target = new MapLocation(Planet.Mars, randomness.nextInt((int)mars.getWidth()), randomness.nextInt((int)mars.getHeight()));
-    		if (mars.onMap(target) && mars.isPassableTerrainAt(target) > 0)
-    			found = true;
-    	}
-    	return target;
+    	return zone.tiles.get(randomness.nextInt(size));  	
     }
     
     private static long getLaunchRound(Unit u) {
@@ -646,7 +741,7 @@ public class Player {
     		round = gc.round() + 50;
     	
     	launchRound.put(id, round);
-    	debug("Rocket id " + id + " will launch on round " + round);
+    	//debug("Rocket id " + id + " will launch on round " + round);
     	return round;
     }
     
@@ -660,18 +755,20 @@ public class Player {
     	int id = unit.id();
     	if (myPlanet == Planet.Earth) {
     		//Check to see if we are have a launch time or are full
-    		MapLocation dest = launchDestination(unit);
+    		MapLocation dest = launchDestination();
     		if (gc.canLaunchRocket(id, dest)) {
     			boolean launchNow = (unit.structureGarrison().size() >= unit.structureMaxCapacity());
     			if (!launchNow && gc.round() >= getLaunchRound(unit))
     				launchNow = true;
     			if (launchNow) {
-    				debug("Launching rocket " + id + " to " + dest + " ETA " + gc.currentDurationOfFlight() + " rnds");
-    				MapLocation loc = unit.location().mapLocation();
-    				int x = loc.getX(), y = loc.getY();
-    				unitAt[x][y] = null;
+    				//debug("Launching rocket " + id + " to " + dest + " ETA " + gc.currentDurationOfFlight() + " rnds");
     				gc.launchRocket(id, dest);
     				launchRound.remove(id);
+    				
+    				//Send next rocket to next zone
+    		    	marsZone++;
+    		    	if (marsZone >= mars.zones.size())
+    		    		marsZone = 0;  
     			}
     		}
     	} else {
@@ -703,7 +800,7 @@ public class Player {
 	    	Direction dir = bestMove(unit, getGravityMap(UnitType.Worker));
 	    	if (dir != null && gc.canUnload(fid, dir)) {
 	    		gc.unload(fid, dir);
-	    		debug("unloading from factory");
+	    		//debug("unloading from factory");
 	    	}
     	}
     	
@@ -731,15 +828,16 @@ public class Player {
      */
     private static void manageRanger(Unit unit) {
     	int id = unit.id();
-    	boolean canShoot = (unit.attackHeat() < 10);
+    	boolean canAttack = (unit.attackHeat() < 10);
     	
     	//Rangers need to be mobile - we need to be able to shoot then move or to move then shoot
     	
-    	if (canShoot) {
+    	if (canAttack) {
     		int targetId = bestTarget(unit);
     		if (targetId > -1) {
     			gc.attack(id, targetId);
-        		canShoot = false;
+    			//debug("Unit " + id + " " + unit.unitType() + " firing on " + targetId);
+        		canAttack = false;
     		}
     	}  	
     	
@@ -747,11 +845,11 @@ public class Player {
         if (gc.isMoveReady(id))
         	moveUnit(unit);
         	
-        if (canShoot) {
+        if (canAttack) {
     		int targetId = bestTarget(unit);
     		if (targetId > -1) {
     			gc.attack(id, targetId);
-        		canShoot = false;
+    			//debug("Unit " + id + " " + unit.unitType() + " firing on " + targetId);
     		}
     	}  
     }
@@ -793,7 +891,7 @@ public class Player {
     	VecUnit inSight = gc.senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.attackRange(), otherTeam);
     	//Pick the enemy with the most damage that is in range
     	int best = -1, id = unit.id();
-    	long mostDamage = 0;
+    	long mostDamage = -1;
     	
     	for (int i=0; i<inSight.size(); i++) {
     		Unit enemy = inSight.get(i);
@@ -812,26 +910,25 @@ public class Player {
     		return;
     	
     	Direction d = bestMove(unit, getGravityMap(unit.unitType()));
-    	MapLocation loc = unit.location().mapLocation();
-    	int id = unit.id();
     	
     	if (d != null) {
+        	MapLocation loc = unit.location().mapLocation();
+        	int id = unit.id();
     		MapLocation dest = loc.add(d);
+    		
     		if (gc.canMove(id, d)) {
     			gc.moveRobot(id, d);
-    			unitAt[loc.getX()][loc.getY()] = null;
-    			unitAt[dest.getX()][dest.getY()] = unit;
     		} else if (unit.location().isInGarrison()) {
-    			Unit structure = unitAt[loc.getX()][loc.getY()];
+    			Unit structure = unitAt(loc);
     			if (structure != null && gc.canUnload(structure.id(), d)) {
     				gc.unload(structure.id(), d);
-    				unitAt[dest.getX()][dest.getY()] = unit;
     			}
-    		} else {
-    			Unit structure = unitAt[dest.getX()][dest.getY()];
-    			if (structure != null && gc.canLoad(structure.id(), id)) {
-    				unitAt[loc.getX()][loc.getY()] = null;
-    				gc.load(structure.id(), id);
+    		} else { //Check to see if there is a structure of ours there
+    			Unit structure = unitAt(dest);
+    			if (structure != null) {
+	    			if (gc.canLoad(structure.id(), id)) {
+	    				gc.load(structure.id(), id);
+	    			}
     			}
     		}
     	}	
@@ -841,8 +938,6 @@ public class Player {
     	
         while (true) {
         	try {
-	            System.out.println("Current round on " + myPlanet + ": "+gc.round()+" Karbonite: "+gc.karbonite());
-
 	            updateUnits(); //All units we can see - allies and enemies
 	            updateKarbonite(); //Current known karbonite values
 	            clearGavityMaps(); //Clear the old maps and recreate as required
