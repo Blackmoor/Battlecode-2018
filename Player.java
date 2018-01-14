@@ -717,11 +717,13 @@ public class Player {
 						gc.karbonite() >= bc.bcUnitTypeBlueprintCost(UnitType.Factory) &&
 						gc.canBlueprint(id, UnitType.Factory, dir)) {
 					gc.blueprint(id, UnitType.Factory, dir);
+					debug(2, "worker blueprinting factory");
 					myLandUnits[UnitType.Factory.ordinal()]++;
 				} else if (rocketsNeeded > 0 && rocketsNeeded >= factoriesNeeded &&
 						gc.karbonite() >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket) &&
 						gc.canBlueprint(id, UnitType.Rocket, dir)) {
 					gc.blueprint(id, UnitType.Rocket, dir);
+					debug(2, "worker blueprinting rocket");
 					myLandUnits[UnitType.Rocket.ordinal()]++;
 				}
 			}
@@ -1005,6 +1007,8 @@ public class Player {
     	
         while (true) {
         	try {
+        		long startTime = System.currentTimeMillis();
+
 	            updateUnits(); //All units we can see - allies and enemies
 	            updateKarbonite(); //Current known karbonite values
 	            
@@ -1042,6 +1046,9 @@ public class Player {
 	                }
 	            }
 	            // Submit the actions we've done, and wait for our next turn.
+
+        		long endTime = System.currentTimeMillis();
+        		debug(1, "Time spent on round " + gc.round() + " = " + (endTime - startTime));
 	            gc.nextTurn();
         	} catch (Exception e) {
         		//Ignore
