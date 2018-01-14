@@ -6,7 +6,8 @@ import bc.*;
 
 public class MapAnalyser {
 	public ArrayList<MapZone>	zones;	//The distinct zones found on the map
-	public PlanetMap			map; //The map being analysed
+	private PlanetMap			map; //The map being analysed
+	private short[][]			zoneArray; //Indexed by x,y coords - contains the zoneId of the location
 	
 	public MapAnalyser(GameController gc) {
 		map = gc.startingMap(Planet.Mars);
@@ -15,7 +16,7 @@ public class MapAnalyser {
 		 * We scan for zones in the map using a flood search (BFS) and mark each one with a unique id
 		 */
 		short currentZone = 1;
-		short[][] zoneArray = new short[(int) map.getWidth()][(int) map.getHeight()];
+		zoneArray = new short[(int) map.getWidth()][(int) map.getHeight()];
 		
 		for (int x=0; x<map.getWidth(); x++) {
 			for (int y=0; y<map.getHeight(); y++) {
@@ -32,7 +33,7 @@ public class MapAnalyser {
 		 */
 		zones = new ArrayList<MapZone>();
 		for (int i=0; i<currentZone-1; i++) {
-			zones.add(new MapZone(new ArrayList<MapLocation>(), 0));
+			zones.add(new MapZone(i));
 		}
 		
 		for (int x=0; x<map.getWidth(); x++) {
@@ -41,12 +42,13 @@ public class MapAnalyser {
 					MapLocation here = new MapLocation(map.getPlanet(), x, y);
 					MapZone zone = zones.get(zoneArray[x][y]-1);
 					zone.tiles.add(here);
+					zone.landingSites.add(here);
 				}
 			}
 		}
 		
 		/*
-		 * Finally process the asteroids and add to each zone
+		 * Now process the asteroids and add to each zone
 		 */
 		for (int round=0; round<1000; round++) {
 			if (gc.asteroidPattern().hasAsteroid(round)) {
@@ -59,9 +61,13 @@ public class MapAnalyser {
 		}
 		
 		/*
-		 * Now sort the list of zones - putting the best one first
+		 * Finally sort the list of zones - putting the best one first
 		 */
 		Collections.sort(zones);
+	}
+	
+	public int getZone(MapLocation m) {
+		return zoneArray[m.getX()][m.getY()];
 	}
 	
 	private void flood(MapLocation start, short[][] zone, short zoneID) {
