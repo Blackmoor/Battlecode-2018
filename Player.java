@@ -503,9 +503,11 @@ public class Player {
     	if (!nothingToMine) {
 	    	for (int x = 0; x<map.getWidth(); x++) {
 	    		for (int y=0; y<map.getHeight(); y++) {
-	    			MapLocation test = new MapLocation(myPlanet, x, y);
-	    			if (gc.canSenseLocation(test)) {
-	    				karboniteMap[x][y] = gc.karboniteAt(test);
+	    			if (karboniteMap[x][y] > 0) { //Check to see if this tile has been mined
+		    			MapLocation test = new MapLocation(myPlanet, x, y);
+		    			if (gc.canSenseLocation(test)) {
+		    				karboniteMap[x][y] = gc.karboniteAt(test);
+		    			}
 	    			}
 	    		}
 	    	}
@@ -528,7 +530,6 @@ public class Player {
     private static List<Unit> unitsToRepair = new ArrayList<Unit>(); //List of buildings that need repair
     private static List<Unit> rockets = new ArrayList<Unit>(); //List of rockets (to Load into if on Earth, or unload from on Mars)
     private static List<Unit> enemies = new ArrayList<Unit>(); //List of all enemy units in sight
-    private static List<Unit> factories = new ArrayList<Unit>(); //List of all our factories
     
     /*
      * Loop through the units we are aware of and update our cache
@@ -544,7 +545,6 @@ public class Player {
     	unitsToRepair.clear();
     	rockets.clear();
     	enemies.clear();
-    	factories.clear();
     	
     	for (int i = 0; i < units.size(); i++) {
             Unit unit = units.get(i);
@@ -557,10 +557,8 @@ public class Player {
             				unitsToBuild.add(unit);
             			else if (unit.health() < unit.maxHealth())
             				unitsToRepair.add(unit);
-            			
-            			if (unit.unitType().equals(UnitType.Factory))
-            				factories.add(unit);
-            			else if (unit.unitType().equals(UnitType.Rocket) && unit.rocketIsUsed() == 0)
+           			
+            			if (unit.structureIsBuilt() > 0 && unit.unitType().equals(UnitType.Rocket) && unit.rocketIsUsed() == 0)
             				rockets.add(unit);
             			
             			VecUnitID garrison = unit.structureGarrison();
@@ -1008,9 +1006,12 @@ public class Player {
         while (true) {
         	try {
         		long startTime = System.currentTimeMillis();
-
+        		long now = startTime;
 	            updateUnits(); //All units we can see - allies and enemies
+	            debug(1, "UpdateUnits took " + (System.currentTimeMillis() - now) + " ms");
+	            now = System.currentTimeMillis();
 	            updateKarbonite(); //Current known karbonite values
+	            debug(1, "updateKarbonite took " + (System.currentTimeMillis() - now) + " ms");
 	            
 	            for (int i = 0; i < units.size(); i++) {
 	                Unit unit = units.get(i);
