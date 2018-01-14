@@ -3,6 +3,7 @@
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Random;
@@ -72,8 +73,7 @@ public class Player {
      * We create these maps each turn that a unit needs to move and only as needed
      */
     
-    private static boolean nothingToMine = false; //Set to true once all the karbonite has been mined on Earth
-    private static long[][] karboniteMap; //Initialised with starting values and updated as we sense tiles with new values
+    private static ArrayList<MapLocation> karboniteLocation = new ArrayList<MapLocation>(); //Initialised with starting values and updated as we sense tiles with new values
     private static boolean[][] passable; //Set to true if the location is passable (i.e. not water) - fixed
     
     private static double[][] workerMap = null;
@@ -378,18 +378,7 @@ public class Player {
 		int workerCount = myLandUnits[UnitType.Worker.ordinal()];
 		
 		//Add Karbonite deposits
-		if (!nothingToMine) {
-			for (int x=0; x<map.getWidth(); x++) {
-				for (int y=0; y<map.getHeight(); y++) {
-					if (karboniteMap[x][y] > 0) {
-						targets.add(new MapLocation(myPlanet, x, y));
-					}
-				}
-			}
-			ripple(workerMap, targets, 10, UnitType.Worker, workerCount);
-			if (myPlanet == Planet.Earth && targets.size() == 0)
-				nothingToMine = true;
-		}
+		ripple(workerMap, karboniteLocation, 10, UnitType.Worker, workerCount);
 		
 		//Add blueprints and damaged buildings
 		targets.clear();
@@ -442,7 +431,6 @@ public class Player {
     private static void scanMap() {
     	int w = (int) map.getWidth(), h = (int) map.getHeight();
     	totalKarbonite = 0;
-    	karboniteMap = new long[w][h];
     	passable = new boolean[w][h];
     	rangerMap = new double[w][h];
     	mageMap = new double[w][h];
@@ -453,15 +441,12 @@ public class Player {
     	for (int x = 0; x<map.getWidth(); x++) {
     		for (int y=0; y<map.getHeight(); y++) {
     			MapLocation here = new MapLocation(myPlanet, x, y);
-    			karboniteMap[x][y] = map.initialKarboniteAt(here);
-    			totalKarbonite += karboniteMap[x][y];    			
+    			if (map.initialKarboniteAt(here) > 0) {
+    				karboniteLocation.add(here);
+    				totalKarbonite += map.initialKarboniteAt(here);
+    			}
     			passable[x][y] = (map.onMap(here) && map.isPassableTerrainAt(here) > 0);
     		}
-    	}
-    	
-    	if (myPlanet == Planet.Earth) {
-    		if (totalKarbonite == 0)
-    			nothingToMine = true;
     	}
     	
     	mars = new MapAnalyser(gc);
@@ -499,26 +484,18 @@ public class Player {
      * If Earth now has no Karbonite we can skip the update as no more will appear
      */
     private static void updateKarbonite() {
-    	
-    	if (!nothingToMine) {
-	    	for (int x = 0; x<map.getWidth(); x++) {
-	    		for (int y=0; y<map.getHeight(); y++) {
-	    			if (karboniteMap[x][y] > 0) { //Check to see if this tile has been mined
-		    			MapLocation test = new MapLocation(myPlanet, x, y);
-		    			if (gc.canSenseLocation(test)) {
-		    				karboniteMap[x][y] = gc.karboniteAt(test);
-		    			}
-	    			}
-	    		}
-	    	}
-    	}	    	
+    	for (Iterator<MapLocation> iterator = karboniteLocation.iterator(); iterator.hasNext();) {
+    	    MapLocation m = iterator.next();
+    		if (gc.canSenseLocation(m)) {
+    			if (gc.karboniteAt(m) == 0)
+    				iterator.remove();
+    		}
+    	}	
     	
     	if (myPlanet == Planet.Mars) {
     		if (gc.asteroidPattern().hasAsteroid(gc.round())) {
     			MapLocation strike = gc.asteroidPattern().asteroid(gc.round()).getLocation();
-    			long karbonite = gc.asteroidPattern().asteroid(gc.round()).getKarbonite();
-    			int x = strike.getX(), y = strike.getY();
-    			karboniteMap[x][y] += karbonite;
+    			karboniteLocation.add(strike);
     		}
     	}
     }
@@ -1006,19 +983,13 @@ public class Player {
         while (true) {
         	try {
         		long startTime = System.currentTimeMillis();
-        		long now = startTime;
 	            updateUnits(); //All units we can see - allies and enemies
-	            debug(1, "UpdateUnits took " + (System.currentTimeMillis() - now) + " ms");
-	            now = System.currentTimeMillis();
 	            updateKarbonite(); //Current known karbonite values
-	            debug(1, "updateKarbonite took " + (System.currentTimeMillis() - now) + " ms");
 	            
 	            for (int i = 0; i < units.size(); i++) {
 	                Unit unit = units.get(i);
 	                
-	                if (unit.team() == myTeam) {
-		                // Most methods on gc take unit IDs, instead of the unit objects themselves.
-		  
+	                if (unit.team() == myTeam) {  
 	                	switch(unit.unitType()) {
 	                	case Worker:
 	                		manageWorker(unit);
@@ -1042,11 +1013,9 @@ public class Player {
 	                		manageHealer(unit);
 	                	default: //Unknown unit
 	                		break;
-	                	}
-		                
+	                	}		                
 	                }
 	            }
-	            // Submit the actions we've done, and wait for our next turn.
 
         		long endTime = System.currentTimeMillis();
         		debug(1, "Time spent on round " + gc.round() + " = " + (endTime - startTime));
