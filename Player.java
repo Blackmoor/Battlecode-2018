@@ -77,23 +77,69 @@ public class Player {
     	
     	int cx = centre.getX(), cy = centre.getY();
     	int width = (int) map.getWidth(), height = (int) map.getHeight();
+    	Planet p = centre.getPlanet();
     	result.add(centre);
     	
-    	//Scan tiles in 1 quadrant (top right from centre) and add 4 tiles to list if it is in range
-    	int maxOffset = (int) Math.sqrt(radiusSq);
-    	for (int x=0; x<maxOffset; x++)
-    		for (int y=1; y<maxOffset; y++)
-    			if (x*x+y*y <= radiusSq) {
-    				if (cx+x < width && cy+y < height)
-    					result.add(new MapLocation(myPlanet, cx+x, cy+y));
-    				if (cx-y >= 0 && cy+x < height)
-    					result.add(new MapLocation(myPlanet, cx-y, cy+x));
-    				if (cx-x >= 0 && cy-y >= 0)
-    					result.add(new MapLocation(myPlanet, cx-x, cy-y));
-    				if (cx+y < width && cy-x >= 0)
-    					result.add(new MapLocation(myPlanet, cx+y, cy-x));
-    			}
+    	//The tiles in the resultant circle will be 4 way symmetric along the diagonals and vertices
+    	//and 8 way symmetric in other areas
 
+    	//First the horizontal/vertical
+    	for (int x=0; x*x<=radiusSq; x++) {
+    		if (cx+x < width)
+				result.add(new MapLocation(p, cx+x, cy));
+			if (cy+x < height)
+				result.add(new MapLocation(p, cx, cy+x));
+			if (cx-x >= 0)
+				result.add(new MapLocation(p, cx-x, cy));
+			if (cy-x >= 0)
+				result.add(new MapLocation(p, cx, cy-x));
+    	}
+    	
+    	//Now the diagonals
+    	for (int x=0; 2*x*x<=radiusSq; x++) {
+    		if (cx+x < width) {
+    			if (cy+x < height)
+    				result.add(new MapLocation(p, cx+x, cy+x));
+    			if (cy-x >= 0)
+    				result.add(new MapLocation(p, cx+x, cy-x));
+    		}
+			if (cx-x >= 0) {
+				if (cy+x < height)
+					result.add(new MapLocation(p, cx-x, cy+x));
+				if (cy-x >= 0)
+					result.add(new MapLocation(p, cx-x, cy-x));
+			}
+    	}
+    	
+    	//Finally the 8 way symmetry
+    	for (int x=1; 2*x*(x+1)+1<=radiusSq; x++) {
+    		for (int y=x+1; x*x+y*y<=radiusSq; y++) {
+				if (cx+x < width) {
+					if (cy+y < height)
+						result.add(new MapLocation(p, cx+x, cy+y));
+					if (cy-y >= 0)
+						result.add(new MapLocation(p, cx+x, cy-y));
+				}
+				if (cx-y >= 0) {
+					if (cy+x < height)
+						result.add(new MapLocation(p, cx-y, cy+x));
+					if (cy-x >= 0)
+						result.add(new MapLocation(p, cx-y, cy-x));
+				}
+				if (cx-x >= 0) {
+					if (cy-y >= 0)
+						result.add(new MapLocation(p, cx-x, cy-y));
+					if (cy+y < height)
+						result.add(new MapLocation(p, cx-x, cy+y));
+				}
+				if (cx+y < width) {
+					if (cy-x >= 0)
+						result.add(new MapLocation(p, cx+y, cy-x));				
+					if (cy+x < height)
+						result.add(new MapLocation(p, cx+y, cy+x));
+				}
+    		}
+    	}
     	return result;
     }
     
@@ -101,24 +147,26 @@ public class Player {
     	ArrayList<MapLocation> result = new ArrayList<MapLocation>();
     	int cx = centre.getX(), cy = centre.getY();
     	int width = (int) map.getWidth(), height = (int) map.getHeight();
+    	Planet p = centre.getPlanet();
     	
     	if (cx > 0) {
-    		result.add(new MapLocation(myPlanet, cx-1, cy));
+    		result.add(new MapLocation(p, cx-1, cy));
     		if (cy > 0)
-    			result.add(new MapLocation(myPlanet, cx-1, cy-1));
+    			result.add(new MapLocation(p, cx-1, cy-1));
     		if (cy+1 < height)
-    			result.add(new MapLocation(myPlanet, cx-1, cy+1));
+    			result.add(new MapLocation(p, cx-1, cy+1));
     	}
     	if (cy > 0)
-			result.add(new MapLocation(myPlanet, cx, cy-1));
+			result.add(new MapLocation(p, cx, cy-1));
 		if (cy+1 < height)
-			result.add(new MapLocation(myPlanet, cx, cy+1));
+			result.add(new MapLocation(p, cx, cy+1));
+		
 		if (cx+1 < width) {
-			result.add(new MapLocation(myPlanet, cx+1, cy));
+			result.add(new MapLocation(p, cx+1, cy));
     		if (cy > 0)
-    			result.add(new MapLocation(myPlanet, cx+1, cy-1));
+    			result.add(new MapLocation(p, cx+1, cy-1));
     		if (cy+1 < height)
-    			result.add(new MapLocation(myPlanet, cx+1, cy+1));
+    			result.add(new MapLocation(p, cx+1, cy+1));
 		}
 		return result;
     }
@@ -222,7 +270,7 @@ public class Player {
     	 */
     	for (Iterator<MapLocation> iterator = edge.iterator(); iterator.hasNext();) {
     	    MapLocation m = iterator.next();
-    	    if (status[m.getX()][m.getY()] == UNSEEN)
+    	    if (status[m.getX()][m.getY()] == UNSEEN && passable[m.getX()][m.getY()])
     	    	status[m.getX()][m.getY()] = OPEN;
     	    else
     			iterator.remove();
@@ -424,7 +472,7 @@ public class Player {
     	
     	//Add damaged units
     	for (Unit u:unitsToHeal)
-    		targets.add(u.location().mapLocation());
+    		targets.addAll(allLocationsWithin(u.location().mapLocation(), 30));
     	ripple(healerMap, targets, 100, UnitType.Healer, healerCount);
     	
     	addDangerZones(healerMap);
@@ -1072,7 +1120,7 @@ public class Player {
 	            
 	            VecUnit known = units.allUnits();
 	            
-	            for (int i = 0; i < known.size() && gc.getTimeLeftMs() > 500; i++) {
+	            for (int i = 0; i < known.size(); i++) {
 	                Unit unit = known.get(i);
 	                
 	                if (unit.team() == myTeam) {  
@@ -1109,13 +1157,11 @@ public class Player {
 	             */
 	            if (myPlanet == Planet.Earth) {
 		            for (Unit r:rockets) {
-		            	if (gc.getTimeLeftMs() < 500)
-		            		break;
 		            	manageRocket(r);
 		            }
 	            }
 	            
-        		debug(0, "Time left at end of round " + currentRound + " = " + gc.getTimeLeftMs());
+        		debug(1, "Time left at end of round " + currentRound + " = " + gc.getTimeLeftMs());
 	            gc.nextTurn();
         	} catch (Exception e) {
         		//Ignore
