@@ -84,7 +84,7 @@ public class Player {
     	//and 8 way symmetric in other areas
 
     	//First the horizontal/vertical
-    	for (int x=0; x*x<=radiusSq; x++) {
+    	for (int x=1; x*x<=radiusSq; x++) {
     		if (cx+x < width)
 				result.add(new MapLocation(p, cx+x, cy));
 			if (cy+x < height)
@@ -96,7 +96,7 @@ public class Player {
     	}
     	
     	//Now the diagonals
-    	for (int x=0; 2*x*x<=radiusSq; x++) {
+    	for (int x=1; 2*x*x<=radiusSq; x++) {
     		if (cx+x < width) {
     			if (cy+x < height)
     				result.add(new MapLocation(p, cx+x, cy+x));
@@ -112,8 +112,8 @@ public class Player {
     	}
     	
     	//Finally the 8 way symmetry
-    	for (int x=1; 2*x*(x+1)+1<=radiusSq; x++) {
-    		for (int y=x+1; x*x+y*y<=radiusSq; y++) {
+    	for (int x=2; x*x<=radiusSq; x++) {
+    		for (int y=1; y<x && x*x+y*y<=radiusSq; y++) {
 				if (cx+x < width) {
 					if (cy+y < height)
 						result.add(new MapLocation(p, cx+x, cy+y));
@@ -140,6 +140,7 @@ public class Player {
 				}
     		}
     	}
+    	
     	return result;
     }
     
@@ -292,7 +293,7 @@ public class Player {
     				if (unit != null && unit.team() == myTeam &&
     						(match == null || match == unit.unitType())) {
 						matchCount++;
-						if (matchCount >= max) { //We have reached the cutoff point
+						if (distance > 1 && matchCount >= max) { //We have reached the cutoff point
 							debug(3, "Ripple match count met: complete at distance " + distance);
 							return;
 						}
@@ -689,9 +690,9 @@ public class Player {
             		enemies.add(unit);
             		switch (unit.unitType()) {
 	            		case Ranger:
-	            		case Knight:
+	            		case Knight: //Increase radius to 8 to account for them moving then attacking
 	            		case Mage:
-	            			for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), unit.attackRange())) {
+	            			for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), Math.max(8, unit.attackRange()))) {
 	            				int x = m.getX(), y = m.getY();
 	            				if (unit.unitType() != UnitType.Ranger || m.distanceSquaredTo(unit.location().mapLocation()) > 10)
 	            					danger[x][y] = true;
@@ -1120,7 +1121,7 @@ public class Player {
 	            
 	            VecUnit known = units.allUnits();
 	            
-	            for (int i = 0; i < known.size(); i++) {
+	            for (int i = 0; i < known.size() && gc.getTimeLeftMs() > 500; i++) {
 	                Unit unit = known.get(i);
 	                
 	                if (unit.team() == myTeam) {  
@@ -1157,11 +1158,12 @@ public class Player {
 	             */
 	            if (myPlanet == Planet.Earth) {
 		            for (Unit r:rockets) {
-		            	manageRocket(r);
+		            	if (gc.getTimeLeftMs() > 500)
+		            		manageRocket(r);
 		            }
 	            }
 	            
-        		debug(1, "Time left at end of round " + currentRound + " = " + gc.getTimeLeftMs());
+        		debug(0, "Time left at end of round " + currentRound + " = " + gc.getTimeLeftMs());
 	            gc.nextTurn();
         	} catch (Exception e) {
         		//Ignore
