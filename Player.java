@@ -77,59 +77,48 @@ public class Player {
 		            VecUnit known = units.allUnits();
 		            
 		            for (int i = 0; i < known.size(); i++) {
-		                Unit unit = known.get(i);
-		                
-		                if (unit.team() == myTeam) {  
-		                	switch(unit.unitType()) {
-			                	case Worker:
-			                		manageWorker(unit);
-			                		break;
-			                	case Knight:
-			                		manageKnight(unit);
-			                		break;
-			                	case Ranger:
-			                		manageRanger(unit);
-			                		break;
-			                	case Mage:
-			                		manageMage(unit);
-			                		break;
-			                	case Factory:
-			                		manageFactory(unit);
-			                		break;
-			                	case Healer:
-			                		manageHealer(unit);
-			                		break;
-			                	case Rocket:
-			                		if (myPlanet == Planet.Mars) {
-			                			manageRocket(unit);
-			                		}
-			                		break;
-			                	default: //Rockets are handled at the end of the round
-			                		break;
-		                	}		                
-		                }
-		            }
-	
-		            /*
-		             * Handle Earth rockets at the end of the round as we want to give everyone a chance to move in first
-		             */
-		            if (myPlanet == Planet.Earth) {
-			            for (Unit r:rockets) {           	
-		            		now = System.currentTimeMillis();
-		            		manageRocket(r);
-			            }
+		                Unit unit = known.get(i);		                
+		                if (unit.team() == myTeam)
+		                	processUnit(unit);
 		            }
         		}   
 	            
         		debug(0, "Round " + currentRound + " took " + (System.currentTimeMillis() - now) + " ms");
-
-        		gc.nextTurn();
         	} catch (Exception e) {
         		//Ignore
         		debug(0, "Caught exception " + e);
         		e.printStackTrace();
         	}
+        	gc.nextTurn();
         }
+    }
+    
+    private static void processUnit(Unit unit) {
+    	switch(unit.unitType()) {
+	    	case Worker:
+	    		manageWorker(unit);
+	    		break;
+	    	case Knight:
+	    		manageKnight(unit);
+	    		break;
+	    	case Ranger:
+	    		manageRanger(unit);
+	    		break;
+	    	case Mage:
+	    		manageMage(unit);
+	    		break;
+	    	case Factory:
+	    		manageFactory(unit);
+	    		break;
+	    	case Healer:
+	    		manageHealer(unit);
+	    		break;
+	    	case Rocket:
+	    		manageRocket(unit);
+	    		break;
+	    	default:
+	    		break;
+		}		    
     }
  
     private static void debug(int level, String s) {
@@ -322,10 +311,12 @@ public class Player {
 			units.updateUnit(dest);
 		} else { //Check to see if there is a structure of ours there
 			Unit structure = units.unitAt(dest);
-			if (structure != null) {
-    			if (gc.canLoad(structure.id(), id)) {
+			if (structure != null && gc.canLoad(structure.id(), id)) {
+				if (structure.unitType() == UnitType.Factory || myPlanet == Planet.Mars ||
+						allowedOnBoard(structure, unit.unitType()) > 0) {
     				units.removeUnit(loc);
-    				gc.load(structure.id(), id);	    				
+    				gc.load(structure.id(), id);
+    				units.updateUnit(dest);
     				debug(2, "Loading " + unit.unitType() + " into " + structure.unitType());
     			}
 			}
@@ -490,29 +481,35 @@ public class Player {
     }
     
     /*
+     * Returns how many more of the given unit type are allowed on the rocket
+     * After turn 700 we let anyone in!
+     */
+    private static int allowedOnBoard(Unit rocket, UnitType passenger) {
+    	VecUnitID loaded = rocket.structureGarrison();
+    	
+    	if (currentRound > 700)
+    		return (int) (rocket.structureMaxCapacity() - loaded.size());
+    	
+		int count = 0;
+		for (long i=0; i<loaded.size(); i++) {
+			Unit u = gc.unit(loaded.get(i));
+			if (u.unitType() == passenger)
+				count++;
+		}
+		
+		return maxUnitsOnRocket(passenger) - count;
+    }
+    
+    /*
      * addRockets
      * 
      * Adds in gravity for each active rocket on earth looking for passengers
-     * Currently we limit a rocket to
-     *  1 Worker
-     *  2 Rangers
-     *  4 Mages
-     *  1 Healer
      */
     private static void addRockets(double[][] map, UnitType match) {
     	//Add Rockets that are ready to board and have space
 		if (myPlanet == Planet.Earth) {
     		for (Unit r: rockets) {
-    			VecUnitID loaded = r.structureGarrison();
-    			int count = 0;
-    			for (long i=0; i<loaded.size(); i++) {
-    				Unit u = gc.unit(loaded.get(i));
-    				if (u.unitType() == match)
-    					count++;
-    			}
-    			
-    			int allowed = maxUnitsOnRocket(match) - count;
-    			debug(3, "Rocket has room for " + allowed + " " + match + "'s");
+    			int allowed = allowedOnBoard(r, match);
     			if (allowed > 0)
     				ripple(map, r.location().mapLocation(), 1000, match, allowed);
     		}
@@ -867,6 +864,20 @@ public class Player {
     		mySpaceUnits[unit.unitType().ordinal()]++;
     	}
     	
+    	//Look for any rockets arriving on Mars in the next 10 turns and mark the tiles
+    	//around the landing site as dangerous
+    	if (myPlanet == Planet.Mars) {
+    		for (int r=0; r<10; r++) {
+	    		VecRocketLanding landings = gc.rocketLandings().landingsOn(currentRound+r);
+	    		for (int l=0; l<landings.size(); l++) {
+	    			MapLocation site = landings.get(l).getDestination();
+	    			danger[site.getX()][site.getY()] = true;
+	    			for (MapLocation m:allNeighboursOf(site))
+	    				danger[m.getX()][m.getY()] = true;
+	    		}
+    		}
+    	}
+    	
     	if (debugLevel > 0) {
 	    	String unitInfo = "";
 	    	for (UnitType t: UnitType.values())
@@ -881,12 +892,6 @@ public class Player {
 	    			unitInfo += t + " = " + mySpaceUnits[t.ordinal()] + " ";
 	    	if (unitInfo.length() > 0)
 	    		debug(1, "Round " + currentRound + ": In space: " + unitInfo);
-	    	
-	    	for (int rnd=0; rnd<200; rnd++) {
-	    		VecRocketLanding landings = gc.rocketLandings().landingsOn(currentRound+rnd);
-	    		for (int l=0; l<landings.size(); l++)
-	    			debug(1, "Rocket Landing on @ " + landings.get(l).getDestination() + " in "+ rnd + " rounds");
-	    	}
     	}
     }
     
@@ -926,9 +931,8 @@ public class Player {
     	if (dir != null && myLandUnits[UnitType.Worker.ordinal()] + mySpaceUnits[UnitType.Worker.ordinal()] < 16) {
         	if (gc.canReplicate(id, dir)) {
         		gc.replicate(id, dir);
-        		units.updateUnit(loc.add(dir)); //TODO - check to see if we can call manageWorker on new unit
-        		myLandUnits[UnitType.Worker.ordinal()]++;
         		debug(2, "worker replicating");
+        		myLandUnits[UnitType.Worker.ordinal()]++;
         	}
     	}	                    
         
@@ -1005,7 +1009,7 @@ public class Player {
     
     private static int marsZone = 0; //This is the zone we want to land in next
     private static HashMap<Integer, Long> launchRound = new HashMap<Integer, Long>(); //List of scheduled launches (rocket id, round)
-    
+ 
     /*
      * Pick the next valid zone on mars
      * It has to have viable landing sites
@@ -1092,14 +1096,18 @@ public class Player {
     			}
     		}
     	} else { //On Mars our only job is to unload units
-    		for (Direction dir:Direction.values()) {
-				if (unit.structureGarrison().size() > 0 &&
-						dir != Direction.Center && gc.canUnload(id, dir)) {
-    				gc.unload(id, dir);
-    		    	units.updateUnit(unit.location().mapLocation().add(dir));
-    		    	debug(2, "unloading from rocket");
+    		if (unit.structureGarrison().size() > 0) {
+	    		for (Direction dir:Direction.values()) {
+					if (dir != Direction.Center && gc.canUnload(id, dir)) {
+						MapLocation where = unit.location().mapLocation().add(dir);
+	    				gc.unload(id, dir);   		    	
+	    		    	units.updateUnit(where);
+	    		    	debug(2, "unloading from rocket");
+	    		    	processUnit(units.unitAt(where)); //Give it a chance to act	    		    	
+					}
 				}
-			}  		
+	    		units.updateUnit(unit.location().mapLocation());
+    		}
     	}
     }
     
@@ -1123,14 +1131,17 @@ public class Player {
     	}
     	
     	//Produce units
-    	//We want squads consisting of 3 rangers, 3 mages and a healer
-    	UnitType produce = (myLandUnits[UnitType.Worker.ordinal()] < 8)?UnitType.Worker:UnitType.Ranger;
+    	//We want squads consisting of 1 Worker, 3 rangers, 3 mages and a healer
+    	UnitType produce = UnitType.Ranger;
+    	
+    	if (3 * myLandUnits[UnitType.Worker.ordinal()] < Math.min(8, myLandUnits[UnitType.Ranger.ordinal()]))
+    		produce = UnitType.Worker;
     	if (myLandUnits[UnitType.Mage.ordinal()] < myLandUnits[UnitType.Ranger.ordinal()])
     		produce = UnitType.Mage;
     	else if (3 * myLandUnits[UnitType.Healer.ordinal()] < myLandUnits[UnitType.Ranger.ordinal()])
     		produce = UnitType.Healer;
     	
-    	if (produce == UnitType.Ranger && myLandUnits[UnitType.Ranger.ordinal()] > 10) //Save karbonite for rockets
+    	if (produce == UnitType.Ranger && myLandUnits[UnitType.Ranger.ordinal()] > 12) //Save karbonite for rockets
     		return;
     	
     	if (gc.canProduceRobot(fid, produce)) {
@@ -1153,7 +1164,7 @@ public class Player {
     		MapLocation bestOption = here;
     		for (MapLocation o:allLocationsWithin(here, unit.abilityRange())) {
     			if (mageMap[o.getX()][o.getY()] > bestScore && passable[o.getX()][o.getY()] &&
-    					units.unitAt(o) == null) {
+    					gc.canSenseLocation(o) && !gc.hasUnitAtLocation(o)) {
     				bestScore = mageMap[o.getX()][o.getY()];
     				bestOption = o;
     			}
@@ -1168,7 +1179,6 @@ public class Player {
     	
     	attackWeakest(unit);	   	
     	
-
         moveUnit(unit);
         
     	attackWeakest(unit);
@@ -1182,6 +1192,8 @@ public class Player {
     private static void manageRanger(Unit unit) {
     	if (!unit.location().isOnMap())
     		return;
+    	
+    	//TODO - sniping
     	
     	attackWeakest(unit); 	
     	
