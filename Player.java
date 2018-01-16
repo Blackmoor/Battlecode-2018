@@ -76,7 +76,7 @@ public class Player {
 		            
 		            VecUnit known = units.allUnits();
 		            
-		            for (int i = 0; i < known.size() && gc.getTimeLeftMs() > 500; i++) {
+		            for (int i = 0; i < known.size(); i++) {
 		                Unit unit = known.get(i);
 		                
 		                if (unit.team() == myTeam) {  
@@ -122,7 +122,8 @@ public class Player {
         		}   
 	            
         		debug(0, "Round " + currentRound + " took " + (System.currentTimeMillis() - now) + " ms");
-	            gc.nextTurn();
+
+        		gc.nextTurn();
         	} catch (Exception e) {
         		//Ignore
         		debug(0, "Caught exception " + e);
@@ -303,16 +304,16 @@ public class Player {
      * If the destination is a structure of our - get it to load us
      */
     private static void moveUnit(Unit unit) {
-    	if (!unit.location().isOnMap())
+    	int id = unit.id();
+    	
+    	if (!unit.location().isOnMap() || !gc.isMoveReady(id))
     		return;
     	
-    	Direction d = bestMove(unit, getGravityMap(unit.unitType()));
-    	
+    	Direction d = bestMove(unit, getGravityMap(unit.unitType()));   	
     	if (d == null)
     		return; //No where better
     	
     	MapLocation loc = unit.location().mapLocation();
-    	int id = unit.id();
 		MapLocation dest = loc.add(d);
 		
 		if (gc.canMove(id, d)) {
@@ -338,12 +339,14 @@ public class Player {
      * Returns true if we attacked, false if we didn't
      */
     private static boolean attackWeakest(Unit unit) {
-		if (!unit.location().isOnMap())
+    	int id = unit.id();
+    	
+		if (!unit.location().isOnMap() || !gc.isAttackReady(id))
 			return false;
 		
 		VecUnit inSight = gc.senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.attackRange(), otherTeam);
     	//Pick the enemy with the most damage that is in range
-    	int id = unit.id();
+
     	long mostDamage = -1;
     	Unit best = null;
     	
@@ -897,8 +900,7 @@ public class Player {
     		return;
     	
 		//Do we want to move to a better location
-        if (gc.isMoveReady(id))
-        	moveUnit(unit);
+        moveUnit(unit);
             
         if (!unit.location().isOnMap())
     		return;
@@ -1138,13 +1140,12 @@ public class Player {
     
     private static void manageMage(Unit unit) {
     	int id = unit.id();
-    	boolean canAttack = (unit.attackHeat() < 10);
     	
     	if (!unit.location().isOnMap())
     		return;
     	
     	//Do we want to blink to a better location
-    	if (canAttack && unit.isAbilityUnlocked() > 0 && unit.abilityHeat() < 10) {
+    	if (gc.isAttackReady(id) && unit.isAbilityUnlocked() > 0 && gc.isBlinkReady(id)) {
     		MapLocation here = unit.location().mapLocation();
     		//We can blink to best location in sight range
     		updateMageMap();
@@ -1165,14 +1166,12 @@ public class Player {
     		}
     	}
     	
-    	if (canAttack)
-    		canAttack = !attackWeakest(unit);	   	
+    	attackWeakest(unit);	   	
     	
-    	if (gc.isMoveReady(id))
-        	moveUnit(unit);
+
+        moveUnit(unit);
         
-    	if (canAttack)
-    		attackWeakest(unit);
+    	attackWeakest(unit);
     }
     
     /*
@@ -1183,36 +1182,25 @@ public class Player {
     private static void manageRanger(Unit unit) {
     	if (!unit.location().isOnMap())
     		return;
-    	int id = unit.id();
-    	boolean canAttack = (unit.attackHeat() < 10);
-   	
-    	if (canAttack) 
-    		canAttack = !attackWeakest(unit); 	
+    	
+    	attackWeakest(unit); 	
     	
     	//Do we want to move to a better location
-        if (gc.isMoveReady(id))
-        	moveUnit(unit);
+        moveUnit(unit);
         	
-        if (canAttack)
-    		attackWeakest(unit);
+        attackWeakest(unit);
     }
     
     private static void manageKnight(Unit unit) {
     	if (!unit.location().isOnMap())
     		return;
     	
-    	int id = unit.id();
-    	boolean canAttack = (unit.attackHeat() < 10);
-
-    	if (canAttack) 
-    		canAttack = !attackWeakest(unit); 	
+    	attackWeakest(unit); 	
     	
     	//Do we want to move to a better location
-        if (gc.isMoveReady(id))
-        	moveUnit(unit);
+        moveUnit(unit);
         	
-        if (canAttack)
-    		attackWeakest(unit);
+       attackWeakest(unit);
     }
     
     /*
@@ -1224,10 +1212,9 @@ public class Player {
     	if (!unit.location().isOnMap())
     		return;
     	
-    	if (gc.isMoveReady(unit.id()))
-        	moveUnit(unit);
+        moveUnit(unit);
     	
-    	if (unit.attackHeat() < 10) {
+    	if (gc.isHealReady(unit.id())) {
 	    	VecUnit inSight = gc.senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.attackRange(), myTeam);
 	    	for (int i=0; i<inSight.size(); i++) {
 	    		Unit u = inSight.get(i);
