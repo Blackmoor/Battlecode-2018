@@ -74,11 +74,21 @@ public class Player {
 		            updateKarbonite(); //Current known karbonite values
 		            
 		            VecUnit known = units.allUnits();
+		            for (int i=0; i<known.size(); i++) {
+		            	Unit u = known.get(i);
+		            	if (u.team() == myTeam)
+		            		processUnit(u);
+		            }
 		            
-		            for (int i = 0; i < known.size(); i++) {
-		                Unit unit = known.get(i);		                
-		                if (unit.team() == myTeam)
-		                	processUnit(unit);
+		            /*
+		             * Check for new units from factories or replicating workers
+		             */
+		            ArrayList<Unit> newUnits = units.newUnits();
+		            while (newUnits.size() > 0) {
+		            	debug(0, "Found " + newUnits.size() + " new units");
+			            for (Unit u: newUnits)
+			            	processUnit(u);
+			            newUnits = units.newUnits();
 		            }
         		}   
 	            
@@ -352,9 +362,10 @@ public class Player {
     		return false;
     	
 		MapLocation where = new MapLocation(myPlanet, best.location().mapLocation().getX(), best.location().mapLocation().getY());
+		debug(2, "Unit " + unit.id() + " " + unit.unitType() + " firing on " + best.unitType() + " @ " + where);
 		gc.attack(unit.id(), best.id());
 		units.updateUnit(where);
-		debug(2, "Unit " + unit.id() + " " + unit.unitType() + " firing on " + best.unitType() + " @ " + where);
+	
 		return true;
     }
     
@@ -694,7 +705,7 @@ public class Player {
 		int workerCount = myLandUnits[UnitType.Worker.ordinal()];
 		
 		//Add Karbonite deposits
-		ripple(workerMap, karboniteLocation, 50, UnitType.Worker, workerCount);
+		ripple(workerMap, karboniteLocation, 10, UnitType.Worker, workerCount);
 		
 		//Add blueprints and damaged buildings
 		targets.clear();
@@ -837,7 +848,6 @@ public class Player {
     private static List<Unit> rockets = new ArrayList<Unit>(); //List of rockets (to Load into if on Earth, or unload from on Mars)
     private static List<Unit> enemies = new ArrayList<Unit>(); //List of all enemy units in sight
     private static boolean[][] danger; //Array (x,y) of map location that are threatened by enemy units
-    private static int totalLandUnits = 0; //Updated each turn
     private static boolean saveForFactory = false;
     private static boolean saveForRocket = false;
     
@@ -846,11 +856,10 @@ public class Player {
      * Called once each turn
      */
     private static void updateUnits() {  	
-        units.updateCache(); //All the units we can see on the map (but not the ones in garrisons)
+        units.updateCache(); //All the units we can see
         unitsInSpace = gc.unitsInSpace(); //All the units in space
     	Arrays.fill(myLandUnits, 0);
     	Arrays.fill(mySpaceUnits, 0);
-    	totalLandUnits = 0;
     	unitsToBuild.clear();
     	unitsToHeal.clear();
     	unitsToRepair.clear();
@@ -865,7 +874,6 @@ public class Player {
             if (unit.location().isOnMap()) {
             	if (unit.team() == myTeam) {
             		myLandUnits[unit.unitType().ordinal()]++;
-            		totalLandUnits++;
             		if (unit.unitType().equals(UnitType.Factory) || unit.unitType().equals(UnitType.Rocket)) {
             			if (unit.structureIsBuilt() == 0)
             				unitsToBuild.add(unit);
@@ -1000,7 +1008,7 @@ public class Player {
         if (unit.workerHasActed() == 0) { 
         	for (MapLocation m:allNeighboursOf(loc)) {			
 				Unit other = units.unitAt(m);
-				if (other != null) {
+				if (other != null && (other.unitType() == UnitType.Factory || other.unitType() == UnitType.Rocket)) {
 					if (gc.canBuild(id, other.id())) {
 						gc.build(id, other.id());
 						debug(2, "worker building");
@@ -1155,11 +1163,11 @@ public class Player {
     		if (unit.structureGarrison().size() > 0) {
 	    		for (Direction dir:Direction.values()) {
 					if (dir != Direction.Center && gc.canUnload(id, dir)) {
-						MapLocation where = unit.location().mapLocation().add(dir);
 	    				gc.unload(id, dir);   		    	
-	    		    	units.updateUnit(where);
 	    		    	debug(2, "unloading from rocket");
-	    		    	processUnit(units.unitAt(where)); //Give it a chance to act	    		    	
+	    		    	MapLocation where = unit.location().mapLocation().add(dir);
+	    	    		units.updateUnit(where);
+	    	    		processUnit(units.unitAt(where));
 					}
 				}
 	    		units.updateUnit(unit.location().mapLocation());
@@ -1184,11 +1192,13 @@ public class Player {
 	    	if (dir == null || !gc.canUnload(fid, dir))
 	    		break;
     		gc.unload(fid, dir);
-	    	units.updateUnit(unit.location().mapLocation().add(dir));
     		debug(2, "unloading from factory");
+    		MapLocation where = unit.location().mapLocation().add(dir);
+    		units.updateUnit(where);
+    		processUnit(units.unitAt(where));
     	}
     	
-    	if (!saveForFactory && !saveForRocket) {
+    	if (myLandUnits[UnitType.Worker.ordinal()] == 0 || (!saveForFactory && !saveForRocket)) {
 	    	/*
 	    	 * Produce units
 	    	 * 
