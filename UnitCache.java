@@ -34,26 +34,6 @@ public class UnitCache {
 		}
 	}
 	
-	public ArrayList<Unit> newUnits() {
-		//Check to see if there are any new units created and return them
-		VecUnit updates = gc.myUnits();
-		ArrayList<Unit> result = new ArrayList<Unit>();
-		
-		for (int i=0; i<updates.size(); i++) {
-			Unit u = updates.get(i);
-			if (u.location().isOnMap()) {
-				MapLocation m = u.location().mapLocation();
-				if (units[m.getX()][m.getY()] == null) {
-					units[m.getX()][m.getY()] = u;
-					result.add(u);
-				}
-			}
-		}
-		
-		known = updates;
-		return result;
-	}
-	
 	public VecUnit allUnits() {
 		return known;
 	}
@@ -71,5 +51,13 @@ public class UnitCache {
 			units[here.getX()][here.getY()] = gc.senseUnitAtLocation(here);
 		else
 			units[here.getX()][here.getY()] = null;
+	}
+	
+	public void updateUnit(int id) {
+		Unit u = gc.unit(id);
+		if (u == null || !u.location().isOnMap())
+			return;
+		MapLocation here = u.location().mapLocation();
+		units[here.getX()][here.getY()] = u;
 	}
 }
