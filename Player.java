@@ -48,8 +48,8 @@ public class Player {
         if (myPlanet == Planet.Earth) {
 	        //Start our research 
 	        gc.queueResearch(UnitType.Worker); // Improves Karbonite harvesting (25 turns)
-	        gc.queueResearch(UnitType.Rocket); // Allows us to build rockets (100 turns)
 	        gc.queueResearch(UnitType.Ranger); // Increase movement rate (25 turns)
+	        gc.queueResearch(UnitType.Rocket); // Allows us to build rockets (100 turns)
 	        gc.queueResearch(UnitType.Ranger); // Increase Vision Range (100 Turns)
 	        gc.queueResearch(UnitType.Ranger); // Snipe (200 Turns)	        
 	        //gc.queueResearch(UnitType.Knight);
@@ -57,7 +57,9 @@ public class Player {
 	        //gc.queueResearch(UnitType.Knight);
 	        gc.queueResearch(UnitType.Healer); // Better Healing (25 Turns)
 	        gc.queueResearch(UnitType.Healer); // Better Healing (100 Turns)
-	        gc.queueResearch(UnitType.Healer); // Overcharge (200 Turns)       
+	        gc.queueResearch(UnitType.Healer); // Overcharge (200 Turns)
+	        gc.queueResearch(UnitType.Rocket); // Faster travel
+	        gc.queueResearch(UnitType.Rocket); // Increased Capacity (12)
         }
         
         runPlanet();
@@ -665,11 +667,7 @@ public class Player {
     	for (Unit u:enemies) {
     		//We want to be at our attack distance from each enemy
     		MapLocation enemyLoc = u.location().mapLocation();
-    		for (MapLocation m:allLocationsWithin(enemyLoc, 8, 30)) {
-    			//We don't want tiles adjacent to the enemy as we will take splash damage
-    			if (m.distanceSquaredTo(enemyLoc) > 8)
-    				targets.add(m);
-    		}
+    		targets.addAll(allLocationsWithin(enemyLoc, 8, 30));
     	}
     	ripple(mageMap, targets, 30, UnitType.Mage, mageCount);
     }
@@ -901,8 +899,13 @@ public class Player {
             		MapLocation here = unit.location().mapLocation();
             		myLandUnits[unit.unitType().ordinal()]++;
             		
-            		//Update visibility   
-            		for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), -1, unit.visionRange())) {
+            		//Update visibility
+            		LinkedList<MapLocation> within = null;           		
+            		if (unit.visionRange() == 2)
+            			within = info[here.getX()][here.getY()].neighbours;
+            		else
+            			within = allLocationsWithin(here, -1, unit.visionRange());
+            		for (MapLocation m: within) {
         				int x = m.getX(), y = m.getY();
         				visible[x][y] = true;	
         			}
@@ -951,7 +954,6 @@ public class Player {
     			return r1.id() - r2.id();
     		}
     	});
-    	initGravityMaps();
     	
     	for (int i=0; i<unitsInSpace.size(); i++) {
     		Unit unit = unitsInSpace.get(i);
@@ -959,17 +961,17 @@ public class Player {
     	}
     	
     	/*
-    	 * Produce the list of locations that are safe but next to a tile an enemy can attack
-    	 * and locations that are safe and next to an unseen tile
+    	 * Produce the list of locations that are unseen but next to a location we can see
+    	 * i.e. the border of known space
+    	 * If we have no units this list is empty
     	 */
-    	if (!conquored) {
+    	if (!conquored && units.allUnits().size() > 0) {
 			for (int x=0; x<map.getWidth(); x++) {
 				for (int y=0; y<map.getHeight(); y++) {  
-					MapLocation here = info[x][y].here;
 					if (!visible[x][y]) { //Unseen - are we adjacent to a visible location
 						for (MapLocation m:info[x][y].neighbours) {
 							if (visible[m.getX()][m.getY()]) {
-								exploreZone.add(here);
+								exploreZone.add(info[x][y].here);
 								break;
 							}
 						}
@@ -992,7 +994,8 @@ public class Player {
 		int unitsToTransport = (myLandUnits[UnitType.Worker.ordinal()] + 
 				myLandUnits[UnitType.Healer.ordinal()]) +
 				myCombatUnits;
-		int rocketsNeeded = ((unitsToTransport+7) / 8) - myLandUnits[UnitType.Rocket.ordinal()];
+		int capacity = (gc.researchInfo().getLevel(UnitType.Rocket) > 1)?12:8;
+		int rocketsNeeded = ((unitsToTransport+capacity-1) / capacity) - myLandUnits[UnitType.Rocket.ordinal()];
 		saveForFactory = (myLandUnits[UnitType.Worker.ordinal()] > 0 &&
 				(myLandUnits[UnitType.Factory.ordinal()] == 0 ||
 					(myCombatUnits > 4 && myLandUnits[UnitType.Factory.ordinal()] == 1)));
@@ -1006,12 +1009,15 @@ public class Player {
 	    		VecRocketLanding landings = gc.rocketLandings().landingsOn(currentRound+r);
 	    		for (int l=0; l<landings.size(); l++) {
 	    			MapLocation site = landings.get(l).getDestination();
+	    			debug(2, "Clearing area for landing on round " + (currentRound+r) + " at " + site);
 	    			danger[site.getX()][site.getY()] += 100; //TODO find real value from interface
 	    			for (MapLocation m:info[site.getX()][site.getY()].neighbours)
 	    				danger[m.getX()][m.getY()] += 100;
 	    		}
     		}
     	}
+    	
+    	initGravityMaps(); //Gives each a random noise level and includes and danger areas
     	
     	if (debugLevel > 0) {
 	    	String unitInfo = "";
@@ -1205,7 +1211,7 @@ public class Player {
     	
     	int id = unit.id();
     	if (myPlanet == Planet.Earth) {
-    		//Check to see if we are have a launch time or are full
+    		//Check to see if we are full
     		MapLocation here = unit.location().mapLocation();
     		MapLocation dest = launchDestination();
     		if (dest != null && gc.canLaunchRocket(id, dest)) {
@@ -1468,7 +1474,7 @@ public class Player {
 	    	}
 	    	if (bestTarget != null) {
 				gc.overcharge(unit.id(), bestTarget.id());
-				debug(0, "Overcharging " + bestTarget.unitType() + " @ " + bestTarget.location().mapLocation());
+				debug(2, "Overcharging " + bestTarget.unitType() + " @ " + bestTarget.location().mapLocation());
 				processUnit(bestTarget);
 	    	}
     	}
