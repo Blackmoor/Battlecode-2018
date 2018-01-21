@@ -1165,7 +1165,7 @@ public class Player {
 	    	marsZone++;
 	    	if (marsZone >= mars.zones.size())
 	    		marsZone = 0;
-	    	found = (marsZone == startZone || mars.zones.get(marsZone).landingSites.size() > 0);
+	    	found = (marsZone == startZone || mars.zones.get(marsZone).landingSites.size() > 1);
 		}
 	}
 	
@@ -1212,7 +1212,16 @@ public class Player {
     			boolean full = (unit.structureGarrison().size() >= unit.structureMaxCapacity());
     			boolean takingDamage = (unit.structureGarrison().size() > 0 && unit.health() < unit.maxHealth());
     			if (full || takingDamage || currentRound == FloodTurn) {
-    				debug(2, "Launching rocket " + id + " to " + dest + " ETA " + gc.currentDurationOfFlight() + " rnds");
+    				//Load everyone we can
+    				for (MapLocation m:info[here.getX()][here.getY()].passableNeighbours) {
+    					Unit u = units.unitAt(m);
+    					if (u != null && gc.canLoad(id, u.id())) {
+    						gc.load(id, u.id());
+    						debug(2, "Rocket is loading " + u.unitType() + " before launch");
+    						units.removeUnit(m);
+    					}
+    				}
+    				debug(2, "Launching rocket " + id + " to " + dest);
     				gc.launchRocket(id, dest);
     				units.removeUnit(here);
     				mars.zones.get(marsZone).landingSites.remove(dest);
