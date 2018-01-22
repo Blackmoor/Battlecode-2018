@@ -46,18 +46,22 @@ public class UnitCache {
 		units[here.getX()][here.getY()] = null;
 	}
 	
-	public void updateUnit(MapLocation here) {
+	public Unit updateUnit(MapLocation here) {
 		if (gc.hasUnitAtLocation(here))
 			units[here.getX()][here.getY()] = gc.senseUnitAtLocation(here);
 		else
 			units[here.getX()][here.getY()] = null;
+		
+		return units[here.getX()][here.getY()];
 	}
 	
-	public void updateUnit(int id) {
+	public Unit updateUnit(int id) {
 		Unit u = gc.unit(id);
-		if (u == null || !u.location().isOnMap())
-			return;
-		MapLocation here = u.location().mapLocation();
-		units[here.getX()][here.getY()] = u;
+		if (u != null && u.location().isOnMap()) {
+			MapLocation here = u.location().mapLocation();
+			units[here.getX()][here.getY()] = u;
+		}
+		
+		return u;
 	}
 }

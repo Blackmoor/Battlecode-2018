@@ -20,7 +20,7 @@ public class Player {
     private static long currentRound; //Updated each turn
     private static UnitCache units; //The list of all known units - updated each turn in the main loop   
     private static VecUnit unitsInSpace; //The list of all units on the way to mars
-    private static int maxWorkers = 16; //How many workers on Earth we need to mine the karbonite
+    private static int maxWorkers; //How many workers we need to mine the karbonite
     private static Random randomness = new Random(74921);
     private static LinkedList<MapLocation> karboniteLocation = new LinkedList<MapLocation>(); //Initialised with starting values and updated as we sense tiles with new values
     
@@ -355,15 +355,15 @@ public class Player {
      * They pick the best move according to their gravity map and move in that direction
      * If the destination is a structure of our - get it to load us
      */
-    private static void moveUnit(Unit unit) {
+    private static Unit moveUnit(Unit unit) {
     	int id = unit.id();
     	
     	if (!unit.location().isOnMap() || !gc.isMoveReady(id))
-    		return;
+    		return unit;
     	
     	Direction d = bestMove(unit, getGravityMap(unit.unitType()));   	
     	if (d == null)
-    		return; //No where better
+    		return unit; //No where better
     	
     	MapLocation loc = unit.location().mapLocation();
 		MapLocation dest = loc.add(d);
@@ -371,16 +371,18 @@ public class Player {
 		if (gc.canMove(id, d)) {
 			units.removeUnit(loc);
 			gc.moveRobot(id, d);  			
-			units.updateUnit(id);
+			unit = units.updateUnit(id);
 		} else { //Check to see if there is a structure of ours there
 			Unit structure = units.unitAt(dest);
 			if (structure != null && gc.canLoad(structure.id(), id)) {
 				units.removeUnit(loc);
 				gc.load(structure.id(), id);
 				units.updateUnit(structure.id());
+				unit = gc.unit(unit.id());
 				debug(2, "Loading " + unit.unitType() + " into " + structure.unitType());
 			}
-    	}	
+    	}
+		return unit;
     }
     
     /*
@@ -424,6 +426,8 @@ public class Player {
      * Take out structure first (they don't move)
      * then rangers
      * then other units
+     * 
+     * If there are no enemies - pick a random passable location that is currently not visible
      */
     private static MapLocation bestSnipeTarget(LinkedList<Unit> enemies) {
     	Unit best = null;
@@ -434,10 +438,16 @@ public class Player {
     			best = u;
     	}
     	
-    	if (best == null)
-    		return null;
+    	if (best != null)
+    		return best.location().mapLocation();
     	
-    	return best.location().mapLocation();
+    	//No enemies - try a random location
+    	if (exploreZone.size() > 0) {
+    		int r = randomness.nextInt(exploreZone.size());
+    		return exploreZone.get(r);
+    	}
+    	
+    	return null;
     }
     
     private static int bestJavelinTarget(Unit knight) {
@@ -720,7 +730,7 @@ public class Player {
 		ripple(workerMap, karboniteLocation, 10, UnitType.Worker, workerCount);
 		
 		//Add blueprints and damaged buildings
-		ripple(workerMap, unitsToBuild, 200, UnitType.Worker, workerCount);
+		ripple(workerMap, unitsToBuild, 200, UnitType.Worker, Math.min(workerCount, unitsToBuild.size()));
     }
     
     private static double[][] getGravityMap(UnitType type) {
@@ -757,7 +767,7 @@ public class Player {
      */
 	private static void scanMap() {
     	int w = (int) map.getWidth(), h = (int) map.getHeight();
-    	int totalKarbonite = 0; //How much Karbonite is available on the starting map
+    	int turnsToMine = 0; //How many rounds it would take 1 worker to mine (at 3 per turn)
        
     	info = new MapInfo[w][h];
     	
@@ -769,12 +779,16 @@ public class Player {
         allMaps = new double[][][] { mageMap, rangerMap, workerMap, knightMap, healerMap };
     	
         /*
-         * Create and cache a MapLocation for each location on the map and whether it is passable
+         * Create and cache a MapLocation for each location on the map and whether it is passable and has karbonite
          */
         for (int x = 0; x<map.getWidth(); x++)
     		for (int y=0; y<map.getHeight(); y++) {
     			MapLocation m = new MapLocation(myPlanet, x, y);
     			info[x][y] = new MapInfo(m, (map.isPassableTerrainAt(m) > 0));
+    			if (map.initialKarboniteAt(m) > 0) {
+    				karboniteLocation.add(m);
+    				turnsToMine += (map.initialKarboniteAt(m) + 2) / 3;
+    			}   
     		}
     			
         /*
@@ -784,20 +798,20 @@ public class Player {
     		for (int y=0; y<map.getHeight(); y++) {
     			MapLocation here = info[x][y].here;
     			info[x][y].neighbours = allNeighboursOf(here);
-    			info[x][y].passableNeighbours = allPassableNeighbours(here);
-    			if (map.initialKarboniteAt(here) > 0) {
-    				karboniteLocation.add(here);
-    				totalKarbonite += map.initialKarboniteAt(here);
-    			}   			
+    			info[x][y].passableNeighbours = allPassableNeighbours(here);   						
     		}
     	}
     	
-    	if (totalKarbonite < 100)
-    		maxWorkers = 4;
-    	else if (totalKarbonite < 300)
-    		maxWorkers = 8;
-    	else
-    		maxWorkers = 16;
+    	/*
+    	 * Aim to mine everything by turn 400
+    	 * The enemy might get 1/2 of it (so we need half as many workers) but it takes time to move to the karbonite
+    	 * meaning it takes about 5 times longer
+    	 */
+    	maxWorkers = Math.max(8, turnsToMine / 160); //We always want 8 for building rockets and factories
+    	debug(1, "We need " + maxWorkers + " workers on " + myPlanet);
+    	
+    	//TODO - analyse asteroids deposits to see if we should send an early rocket to Mars
+    	//This could affect our research order if we want to get there really quickly
     	
     	mars = new MapAnalyser(gc);
     }   
@@ -841,7 +855,7 @@ public class Player {
     private static void updateKarbonite() {
     	for (Iterator<MapLocation> iterator = karboniteLocation.iterator(); iterator.hasNext();) {
     	    MapLocation m = iterator.next();
-    		if (gc.canSenseLocation(m)) {
+    		if (visible[m.getX()][m.getY()]) {
     			if (gc.karboniteAt(m) == 0)
     				iterator.remove();
     		}
@@ -870,7 +884,7 @@ public class Player {
     private static boolean[][] visible; //Array (x,y) of map locations: true we can see (sense) it
     private static boolean saveForFactory = false;
     private static boolean saveForRocket = false;
-    private static LinkedList<MapLocation> exploreZone = new LinkedList<MapLocation>(); //All locs that are safe but next to an unknown loc
+    private static LinkedList<MapLocation> exploreZone = new LinkedList<MapLocation>(); //All locs that are not visible but next to a visible location
     private static boolean conquored = false; //Set to true on Earth if we can see all the map and no enemies
     
     /*
@@ -994,11 +1008,11 @@ public class Player {
 		int unitsToTransport = (myLandUnits[UnitType.Worker.ordinal()] + 
 				myLandUnits[UnitType.Healer.ordinal()]) +
 				myCombatUnits;
-		int capacity = (gc.researchInfo().getLevel(UnitType.Rocket) > 1)?12:8;
+		int capacity = (gc.researchInfo().getLevel(UnitType.Rocket) == 3)?12:8;
 		int rocketsNeeded = ((unitsToTransport+capacity-1) / capacity) - myLandUnits[UnitType.Rocket.ordinal()];
-		saveForFactory = (myLandUnits[UnitType.Worker.ordinal()] > 0 &&
+		saveForFactory = (myLandUnits[UnitType.Worker.ordinal()] > 3 &&
 				(myLandUnits[UnitType.Factory.ordinal()] == 0 ||
-					(myCombatUnits > 4 && myLandUnits[UnitType.Factory.ordinal()] == 1)));
+					(myCombatUnits > 2 && myLandUnits[UnitType.Factory.ordinal()] == 1)));
 		saveForRocket = (myLandUnits[UnitType.Worker.ordinal()] > 0 && gc.researchInfo().getLevel(UnitType.Rocket) > 0 && rocketsNeeded > 0);
 		
     	
@@ -1046,54 +1060,34 @@ public class Player {
     		return;
     	
 		//Do we want to move to a better location
-        moveUnit(unit);
-            
+        unit = moveUnit(unit);            
         if (!unit.location().isOnMap())
     		return;
         
 		MapLocation loc = unit.location().mapLocation();
-    	LinkedList<MapLocation> options = allOpenNeighbours(loc);
-    	Direction dir = null;
     	
-    	if (!options.isEmpty()) {
-    		//Pick a random open and safe neighbour tile
-    		//TODO - be smarter about blueprint direction - avoid karbonite and tight spaces
-        	int r = randomness.nextInt(options.size());
-        	
-        	for (int i=0; i<options.size(); i++) {
-        		MapLocation test = options.get((i+r)%options.size());
-        		if (danger[test.getX()][test.getY()] == 0) {
-        			dir = loc.directionTo(options.get(0));
-        			break;
-        		}           			
-        	}
-    	}       		
-
-    	//Check to see if we should replicate
+		//Check to see if we should replicate
     	//Even if we want to replicate we might need to hold off so we can build a factory
     	boolean replicate = (myLandUnits[UnitType.Worker.ordinal()] < maxWorkers);
     	if (myPlanet == Planet.Earth) {
-	    	if (myLandUnits[UnitType.Worker.ordinal()] > 1 && myLandUnits[UnitType.Factory.ordinal()] == 0)
+	    	if (saveForFactory)
 	    		replicate = false;
     	} else { //Mars
     		if (LastRound - currentRound < 25) //Might as well spend all our karbonite
     			replicate = true;
     	}
     	
-    	if (dir != null && replicate) {
-        	if (gc.canReplicate(id, dir)) {
-        		gc.replicate(id, dir);
-        		debug(2, "worker replicating");
-        		myLandUnits[UnitType.Worker.ordinal()]++;
-        		MapLocation rep = loc.add(dir);
-        		units.updateUnit(rep);
-        		Unit newWorker = units.unitAt(rep);
-        		if (newWorker != null)
-        			processUnit(newWorker);
-        		else
-        			debug(0, "Failed to find replicant worker at " + rep);
-        	}
-    	}	                    
+    	Direction dir = bestMove(unit, getGravityMap(unit.unitType()));
+    	if (dir != null && replicate && gc.canReplicate(id, dir)) {
+    		gc.replicate(id, dir);
+    		debug(2, "worker replicating");
+    		myLandUnits[UnitType.Worker.ordinal()]++;
+    		Unit newWorker = units.updateUnit(loc.add(dir));
+    		if (newWorker != null)
+    			processUnit(newWorker);
+    		else
+    			debug(0, "Failed to find replicant worker at " + loc.add(dir));
+    	}                
         
         //Can we help build or repair something
     	for (MapLocation m:info[loc.getX()][loc.getY()].passableNeighbours) {			
@@ -1104,7 +1098,7 @@ public class Player {
 					debug(2, "worker building");
 					break;
 				}
-				if (gc.canRepair(id, other.id())) {
+				if (other.health() < other.maxHealth() && gc.canRepair(id, other.id())) {
 					gc.repair(id, other.id());
   					debug(2, "worker is repairing");
   					break;
@@ -1115,24 +1109,48 @@ public class Player {
 		/*
 		 * Now check to see if we want to build a factory or a rocket
 		 */			
-		if (dir != null && myPlanet == Planet.Earth) {
-			if (saveForRocket &&
-					gc.karbonite() >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket) &&
-					gc.canBlueprint(id, UnitType.Rocket, dir)) {
-				gc.blueprint(id, UnitType.Rocket, dir);
-				units.updateUnit(loc.add(dir));
-				debug(2, "worker blueprinting rocket");
-				myLandUnits[UnitType.Rocket.ordinal()]++;
-				saveForRocket = false;
-			}
-			if (gc.karbonite() >= bc.bcUnitTypeBlueprintCost(UnitType.Factory) &&
-					gc.canBlueprint(id, UnitType.Factory, dir)) {
-				gc.blueprint(id, UnitType.Factory, dir);
-				units.updateUnit(loc.add(dir));
-				debug(2, "worker blueprinting factory");
-				myLandUnits[UnitType.Factory.ordinal()]++;
-				saveForFactory = false;
-			}
+		if (unit.workerHasActed() == 0 && myPlanet == Planet.Earth) {
+	    	LinkedList<MapLocation> options = allOpenNeighbours(loc);
+	    	dir = null;
+	    	
+	    	if (!options.isEmpty()) {
+	    		//Pick a random open and safe neighbour tile
+	    		//TODO - be smarter about blueprint direction - avoid karbonite and tight spaces
+	        	int r = randomness.nextInt(options.size());
+	        	
+	        	for (int i=0; i<options.size(); i++) {
+	        		MapLocation test = options.get((i+r)%options.size());      		
+	        		if (danger[test.getX()][test.getY()] == 0) {
+	        			dir = loc.directionTo(options.get(0));
+	        			break; 
+	        		}
+	        	}
+	    	}    	
+	    	
+	    	if (dir != null) {
+	    		MapLocation buildLoc = loc.add(dir);
+				if (saveForRocket &&
+						gc.karbonite() >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket) &&
+						gc.canBlueprint(id, UnitType.Rocket, dir)) {
+					gc.blueprint(id, UnitType.Rocket, dir);
+					units.updateUnit(buildLoc);
+					debug(2, "worker blueprinting rocket");
+					myLandUnits[UnitType.Rocket.ordinal()]++;
+					saveForRocket = false;
+				}
+				int myCombatUnits = myLandUnits[UnitType.Ranger.ordinal()] +
+						myLandUnits[UnitType.Mage.ordinal()] +
+						myLandUnits[UnitType.Knight.ordinal()];
+				boolean buildFactory = (saveForFactory || myCombatUnits > 4*myLandUnits[UnitType.Factory.ordinal()]);
+				if (buildFactory && gc.karbonite() >= bc.bcUnitTypeBlueprintCost(UnitType.Factory) &&
+						gc.canBlueprint(id, UnitType.Factory, dir)) {
+					gc.blueprint(id, UnitType.Factory, dir);
+					units.updateUnit(buildLoc);
+					debug(2, "worker blueprinting factory");
+					myLandUnits[UnitType.Factory.ordinal()]++;
+					saveForFactory = false;
+				}
+	    	}
 		}
 		
 		//Can we Harvest
@@ -1179,6 +1197,8 @@ public class Player {
      * Pick a random location in the current zone
      * Valid landing sites are removed from the zone once a rocket has taken off
      * TODO - allow Mars to tell us that a landing site is valid again (if our rocket was destroyed)
+     * TODO - allow Mars to request missiles (empty rockets sent to destroy enemy rockets)
+     * TODO - prioritise locations with more neighbours for faster unloading
      */
     private static MapLocation launchDestination() {
     	if (marsZone < 0) //Mars is full!
@@ -1245,12 +1265,11 @@ public class Player {
 	    				gc.unload(unit.id(), dir);
 	    				debug(2, "Unloading from rocket - passing through");
 	    				MapLocation where = unit.location().mapLocation().add(dir);	        			
-	    	    		units.updateUnit(where);
-	    	    		processUnit(units.unitAt(where));
+	    	    		processUnit(units.updateUnit(where));
 	    			}
 	    			garrisoned--;
     			}
-    			units.updateUnit(unit.id()); //Update garrison info
+    			unit = units.updateUnit(unit.id()); //Update garrison info
     		}
     	} else { //On Mars our only job is to unload units
     		if (unit.structureGarrison().size() > 0) {
@@ -1259,11 +1278,10 @@ public class Player {
 	    				gc.unload(id, dir);   		    	
 	    		    	debug(2, "unloading from rocket");
 	    		    	MapLocation where = unit.location().mapLocation().add(dir);
-	    	    		units.updateUnit(where);
-	    	    		processUnit(units.unitAt(where));
+	    	    		processUnit(units.updateUnit(where));
 					}
 				}
-	    		units.updateUnit(unit.id()); //Update garrison info
+	    		unit = units.updateUnit(unit.id()); //Update garrison info
     		}
     	}
     }
@@ -1305,8 +1323,7 @@ public class Player {
     		debug(2, "unloading from factory");
     		garrisoned--;
     		MapLocation where = unit.location().mapLocation().add(best);
-    		units.updateUnit(where);
-    		processUnit(units.unitAt(where));
+    		processUnit(units.updateUnit(where));
     	}
     	
     	if (!saveForFactory && !saveForRocket) {
@@ -1315,7 +1332,7 @@ public class Player {
 	    	 */   		
 	    	UnitType produce = UnitType.Ranger;
 	    	
-	    	if (myLandUnits[UnitType.Worker.ordinal()] == 0)
+	    	if (myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, myLandUnits[UnitType.Ranger.ordinal()]))
 	    		produce = UnitType.Worker;
 	    	else if (myLandUnits[UnitType.Healer.ordinal()] < myLandUnits[UnitType.Ranger.ordinal()]/10)
 	    		produce = UnitType.Healer;
@@ -1325,7 +1342,7 @@ public class Player {
 				debug(2, "Factory starts producing a " + produce);
 			}
     	}
-    	units.updateUnit(fid); //Update garrison info
+    	unit = units.updateUnit(fid); //Update garrison info
     }
     
     private static void manageMage(Unit unit) {
@@ -1351,16 +1368,16 @@ public class Player {
     		if (here.distanceSquaredTo(bestOption) >= 2) {
     			units.removeUnit(here);
     			gc.blink(id, bestOption);
-    			units.updateUnit(id);
+    			unit = units.updateUnit(id);
     			debug(2, "Mage is blinking to " + bestOption);
     		}
     	}
     	
     	attackWeakest(unit);	   	
     	
-        moveUnit(unit);
-        
-    	attackWeakest(unit);
+        unit = moveUnit(unit);
+        if (unit.location().isOnMap())
+    		attackWeakest(unit);
     }
     
     /*
@@ -1385,15 +1402,20 @@ public class Player {
     	 * We abort a snipe if
     	 * a) we are in danger
     	 * b) can attack something locally
+    	 * 
+    	 * There is no point in doing more damage than needed to destroy a target so we need to maintain a list of
+    	 * current snipe locations
+    	 * 
+    	 * If a ranger is doing nothing it might as well snipe at locations that are passable but not visible
     	 */   
     	
     	MapLocation here = unit.location().mapLocation();
     	boolean inDanger = (danger[here.getX()][here.getY()] > 0);
     	boolean attacked = attackWeakest(unit);
     	boolean sniping = (unit.rangerIsSniping() > 0);
+    	boolean evacuating = (myPlanet == Planet.Earth && currentRound >= EvacuationRound);
     	
-    	if (!sniping && !attacked && !inDanger && enemies.size() > 0 &&
-    			(myPlanet == Planet.Earth && currentRound <= EvacuationRound) &&
+    	if (!sniping && !attacked && !inDanger && !evacuating && enemies.size() > 0 &&
     			unit.isAbilityUnlocked() > 0 && gc.isBeginSnipeReady(unit.id())) {
     		MapLocation target = bestSnipeTarget(enemies);
     		if (gc.canBeginSnipe(unit.id(), target)) {
@@ -1404,8 +1426,9 @@ public class Player {
     	}
     	
     	if (!sniping || (gc.isMoveReady(unit.id()) && inDanger)) {
-	        moveUnit(unit);        	
-	        attackWeakest(unit);
+	        unit = moveUnit(unit);
+	        if (unit.location().isOnMap())
+	        	attackWeakest(unit);
     	}
     }
     
@@ -1415,7 +1438,9 @@ public class Player {
     	
     	attackWeakest(unit); 	
     	
-        moveUnit(unit);
+        unit = moveUnit(unit);
+        if (!unit.location().isOnMap())
+    		return;
         	
         attackWeakest(unit);
         
@@ -1437,7 +1462,10 @@ public class Player {
     	if (!unit.location().isOnMap())
     		return;
     	
-        moveUnit(unit);
+        unit = moveUnit(unit);
+        
+        if (!unit.location().isOnMap())
+    		return;
     	
     	if (gc.isHealReady(unit.id())) {
 	    	VecUnit inRanger = gc.senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.attackRange(), myTeam);
