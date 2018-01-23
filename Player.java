@@ -819,11 +819,8 @@ public class Player {
     /*
      * Given a gravity map we find the highest scoring tile adjacent to us
      * This could be one of our static buildings or an empty tile
-     * 
-     * Tiles that are within the attack range of a unit are marked as dangerous and we avoid these unless
-     * a) we have more health than the damage we would take in that tile
-     * b) we can move and fire this turn
-     * c) the new tile would give us a valid target to fire at (and we don't have one already)
+     * If the unit supplied is a structure we are not trying to move it - but unload a unit from it
+     * In this case we cannot pick directions containing another structure
      */
     private static Direction bestMove(Unit t, double[][] gravityMap) {
     	Direction best = null;
@@ -832,9 +829,13 @@ public class Player {
     		return null;
     	
     	MapLocation myLoc = t.location().mapLocation();
+    	boolean isStructure =  (t.unitType() == UnitType.Factory || t.unitType() == UnitType.Rocket);   	
     	double bestScore = gravityMap[myLoc.getX()][myLoc.getY()];
+    	LinkedList<MapLocation> options = null;
+    	
     	debug(4, "bestMove from " + myLoc + " current score " + bestScore);
-    	LinkedList<MapLocation> options = allMoveNeighbours(myLoc);
+		else
+			options = allMoveNeighbours(myLoc);
     	for (MapLocation test: options) {
     		Direction d = myLoc.directionTo(test);
     		if (gravityMap[test.getX()][test.getY()] > bestScore) {
@@ -867,11 +868,6 @@ public class Player {
     			karboniteLocation.add(strike);
     		}
     	}
-    	
-    	if (currentRound > EvacuationRound)
-    		maxWorkers = 4;
-    	else if (karboniteLocation.size() < maxWorkers)
-    		maxWorkers = Math.max(4, karboniteLocation.size());
     }
     
     private static int[] myLandUnits = new int[UnitType.values().length]; //Counts of how many units we have indexed by unit type (ordinal)
@@ -938,7 +934,7 @@ public class Player {
             			}
             		} else {
             			if (unit.health() < unit.maxHealth())
-            				unitsToHeal.addAll(allLocationsWithin(unit.location().mapLocation(), 8, 30));
+            				unitsToHeal.add(unit.location().mapLocation());
             		}
             	} else { //enemies
             		enemies.add(unit);
@@ -1235,6 +1231,7 @@ public class Player {
     		MapLocation here = unit.location().mapLocation();
     		MapLocation dest = launchDestination();
     		if (dest != null && gc.canLaunchRocket(id, dest)) {
+    			//TODO - check to see if delaying launch means we arrive quicker!
     			boolean full = (unit.structureGarrison().size() >= unit.structureMaxCapacity());
     			boolean takingDamage = (unit.structureGarrison().size() > 0 && unit.health() < unit.maxHealth());
     			if (full || takingDamage || currentRound == FloodTurn) {
@@ -1340,7 +1337,7 @@ public class Player {
 	    	
 	    	if (myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, myLandUnits[UnitType.Ranger.ordinal()]))
 	    		produce = UnitType.Worker;
-	    	else if (myLandUnits[UnitType.Healer.ordinal()] < unitsToHeal.size() / 2)
+	    	else if (myLandUnits[UnitType.Healer.ordinal()] < unitsToHeal.size())
 	    		produce = UnitType.Healer;
 	    	
 	    	if (gc.canProduceRobot(fid, produce)) {
