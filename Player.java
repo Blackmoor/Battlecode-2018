@@ -312,7 +312,7 @@ public class Player {
     	LinkedList<MapLocation> result = new LinkedList<MapLocation>();
     	
     	for (MapLocation test:info[l.getX()][l.getY()].passableNeighbours) {
-    		if (info[test.getX()][test.getY()].passable && units.unitAt(test) == null)
+    		if (units.unitAt(test) == null)
 				result.add(test);
 		}
     	
@@ -326,24 +326,8 @@ public class Player {
     private static LinkedList<MapLocation> allMoveNeighbours(MapLocation l) {
     	LinkedList<MapLocation> result = new LinkedList<MapLocation>();
     	for (MapLocation test:info[l.getX()][l.getY()].passableNeighbours) {
-    		int x = test.getX(), y = test.getY();
     		Unit u = units.unitAt(test);
-			if (info[x][y].passable && (u == null || isOurStructure(u)))
-				result.add(test);
-		}
-    	
-    	return result;
-    }
-    
-    /*
-     * Returns an array containing all the neighbours of a map location we can unload to
-     * i.e. passable and does not contain a unit
-     */
-    private static LinkedList<MapLocation> allUnloadNeighbours(MapLocation l) {
-    	LinkedList<MapLocation> result = new LinkedList<MapLocation>();
-    	for (MapLocation test:info[l.getX()][l.getY()].passableNeighbours) {
-    		int x = test.getX(), y = test.getY();
-			if (info[x][y].passable && units.unitAt(test) == null)
+			if (u == null || isOurStructure(u))
 				result.add(test);
 		}
     	
@@ -426,10 +410,9 @@ public class Player {
     	if (best == null)
     		return false;
     	
-		MapLocation where = info[best.location().mapLocation().getX()][best.location().mapLocation().getY()].here;
-		debug(2, "Unit " + unit.id() + " " + unit.unitType() + " firing on " + best.unitType() + " @ " + where);
+		debug(2, unit.unitType() + " firing on " + best.unitType());
 		gc.attack(unit.id(), best.id());
-		units.updateUnit(where);
+		units.updateUnit(best.id());
 	
 		return true;
     }
@@ -1059,14 +1042,11 @@ public class Player {
     }
     
     private static void manageWorker(Unit unit) {
-    	if (!unit.unitType().equals(UnitType.Worker))
+    	if (!unit.unitType().equals(UnitType.Worker) || !unit.location().isOnMap())
     		return;
     	
     	int id = unit.id();
-    	
-    	if (!unit.location().isOnMap())
-    		return;
-    	
+
 		//Do we want to move to a better location
         unit = moveUnit(unit);            
         if (!unit.location().isOnMap())
@@ -1091,25 +1071,23 @@ public class Player {
     		debug(2, "worker replicating");
     		myLandUnits[UnitType.Worker.ordinal()]++;
     		Unit newWorker = units.updateUnit(loc.add(dir));
-    		if (newWorker != null)
-    			processUnit(newWorker);
-    		else
-    			debug(0, "Failed to find replicant worker at " + loc.add(dir));
+    		processUnit(newWorker);
     	}                
         
         //Can we help build or repair something
     	for (MapLocation m:info[loc.getX()][loc.getY()].passableNeighbours) {			
 			Unit other = units.unitAt(m);
-			if (other != null && (other.unitType() == UnitType.Factory || other.unitType() == UnitType.Rocket)) {
+			if (other != null && other.team() == myTeam &&
+					(other.unitType() == UnitType.Factory || other.unitType() == UnitType.Rocket)) {
 				if (gc.canBuild(id, other.id())) {
 					gc.build(id, other.id());
 					debug(2, "worker building");
-					break;
+					return;
 				}
 				if (other.health() < other.maxHealth() && gc.canRepair(id, other.id())) {
 					gc.repair(id, other.id());
   					debug(2, "worker is repairing");
-  					break;
+  					return;
 				}
 			}
 		}
@@ -1117,7 +1095,7 @@ public class Player {
 		/*
 		 * Now check to see if we want to build a factory or a rocket
 		 */			
-		if (unit.workerHasActed() == 0 && myPlanet == Planet.Earth) {
+		if (myPlanet == Planet.Earth) {
 	    	LinkedList<MapLocation> options = allOpenNeighbours(loc);
 	    	dir = null;
 	    	
@@ -1146,6 +1124,7 @@ public class Player {
 					myLandUnits[UnitType.Rocket.ordinal()]++;
 					saveForRocket = false;
 				}
+				
 				int myCombatUnits = myLandUnits[UnitType.Ranger.ordinal()] +
 						myLandUnits[UnitType.Mage.ordinal()] +
 						myLandUnits[UnitType.Knight.ordinal()];
@@ -1161,15 +1140,17 @@ public class Player {
 	    	}
 		}
 		
+		unit = units.updateUnit(unit.id());
 		//Can we Harvest
 		if (unit.workerHasActed() == 0) {
 			for (Direction d: Direction.values()) {
 				if (gc.canHarvest(id, d)) {
 					gc.harvest(id, d);
 					debug(2, "worker harvesting");
+					break;
 				}
 			}
-		}					
+		}
     }
     
     /***********************************************************************************
@@ -1309,7 +1290,7 @@ public class Player {
     	long garrisoned = unit.structureGarrison().size();
     	//Unload units if possible
     	while (garrisoned > 0) {
-    		LinkedList<MapLocation> options = allUnloadNeighbours(unit.location().mapLocation());
+    		LinkedList<MapLocation> options = allOpenNeighbours(unit.location().mapLocation());
     		//Pick a random unload direction - if it is not safe keep looking
     		if (options.size() == 0)
     			break;
