@@ -349,6 +349,21 @@ public class Player {
     	
     	return result;
     }
+    
+    /*
+     * A faster version of the sense routine that uses our cache of units
+     */
+    private static LinkedList<Unit> senseNearbyUnitsByTeam(MapLocation centre, long radius, Team team) {
+    	LinkedList<Unit> result = new LinkedList<Unit>();
+    	
+    	for (MapLocation m: allLocationsWithin(centre, -1, radius)) {
+    		Unit u = units.unitAt(m);
+    		if (u != null && u.team() == team) {
+    			result.add(u);
+    		}
+    	}
+    	return result;
+    }
 
     /* 
      * Movement wrapper for all units
@@ -397,14 +412,11 @@ public class Player {
 		if (!unit.location().isOnMap() || !gc.isAttackReady(id))
 			return false;
 		
-		VecUnit inRanger = gc.senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.attackRange(), otherTeam);
-    	//Pick the enemy with the most damage that is in range
-
+		//Pick the enemy with the most damage that is in range
     	long mostDamage = -1;
     	Unit best = null;
     	
-    	for (int i=0; i<inRanger.size(); i++) {
-    		Unit enemy = inRanger.get(i);
+    	for (Unit enemy: senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.attackRange(), otherTeam)) {
     		if (gc.canAttack(id, enemy.id()) && enemy.maxHealth() - enemy.health() > mostDamage) {
     			best = enemy;
     			mostDamage = enemy.maxHealth() - enemy.health();
@@ -453,9 +465,8 @@ public class Player {
     private static int bestJavelinTarget(Unit knight) {
     	int best_id = -1;
     	int mostDamage = -1;
-    	VecUnit options = gc.senseNearbyUnitsByTeam(knight.location().mapLocation(), knight.abilityRange(), otherTeam);
-    	for (int i=0; i<options.size(); i++) {
-    		Unit enemy = options.get(i);
+    	
+    	for (Unit enemy: senseNearbyUnitsByTeam(knight.location().mapLocation(), knight.attackRange(), otherTeam)) {
     		if (enemy.maxHealth() - enemy.health() > mostDamage) {
     			mostDamage = (int)(enemy.maxHealth() - enemy.health());
     			best_id = enemy.id();
@@ -581,18 +592,17 @@ public class Player {
      * Add in the danger zones for all but the knight map
      * Finally run a special version of ripple for each rocket to call in the required units to each one
      */
-    private static void initGravityMaps() {   	
-    	
-    	for (int x=0; x<map.getWidth(); x++) {
-    		for (int y=0; y<map.getHeight(); y++) {
-    			for (double[][] me:allMaps) {
-	    			me[x][y] = randomness.nextDouble() / 10000.0;
-	    			//To ensure we don't build up too many units we ignore the danger zones occasionally
-	    			//and rely on our healers in between
-	    			boolean ignoreDanger = (me == knightMap || (me == rangerMap && currentRound % 10 == 0));
-	    			if (!ignoreDanger)
-	    				me[x][y] -= danger[x][y];
-	    		}
+    private static void initGravityMaps() {   	 	
+		for (double[][] me:allMaps) {
+			boolean ignoreDanger = (me == knightMap || (me == rangerMap && currentRound % 10 == 0));
+	    	for (int x=0; x<map.getWidth(); x++) {
+	    		for (int y=0; y<map.getHeight(); y++) {
+		    			me[x][y] = randomness.nextDouble() / 10000.0;
+		    			//To ensure we don't build up too many units we ignore the danger zones occasionally
+		    			//and rely on our healers in between	    			
+		    			if (!ignoreDanger)
+		    				me[x][y] -= danger[x][y];
+		    	}
 	    	}
     	}
     	
@@ -1233,10 +1243,11 @@ public class Player {
     		MapLocation here = unit.location().mapLocation();
     		MapLocation dest = launchDestination();
     		if (dest != null && gc.canLaunchRocket(id, dest)) {
-    			//TODO - check to see if delaying launch means we arrive quicker!
+    			long arrivalNow = gc.orbitPattern().duration(currentRound);
+    			long arrivalNext = 1+gc.orbitPattern().duration(currentRound+1);
     			boolean full = (unit.structureGarrison().size() >= unit.structureMaxCapacity());
     			boolean takingDamage = (unit.structureGarrison().size() > 0 && unit.health() < unit.maxHealth());
-    			if (full || takingDamage || currentRound == FloodTurn) {
+    			if ((full && arrivalNow <= arrivalNext) || takingDamage || currentRound == FloodTurn) {
     				//Load everyone we can
     				for (MapLocation m:info[here.getX()][here.getY()].passableNeighbours) {
     					Unit u = units.unitAt(m);
@@ -1473,9 +1484,7 @@ public class Player {
     		return;
     	
     	if (gc.isHealReady(unit.id())) {
-	    	VecUnit inRanger = gc.senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.attackRange(), myTeam);
-	    	for (int i=0; i<inRanger.size(); i++) {
-	    		Unit u = inRanger.get(i);
+	    	for (Unit u: senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.attackRange(), myTeam)) {
 	    		if (u.health() < u.maxHealth() && gc.canHeal(unit.id(), u.id())) {
 					gc.heal(unit.id(), u.id());
 					debug(2, "Healing " + u.unitType() + " @ " + u.location().mapLocation());
@@ -1485,11 +1494,9 @@ public class Player {
     	}
     	
     	if (gc.isOverchargeReady(unit.id())) {
-    		VecUnit inRanger = gc.senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.abilityRange(), myTeam);
     		long mostHeat = 0;
     		Unit bestTarget = null;
-	    	for (int i=0; i<inRanger.size(); i++) {
-	    		Unit u = inRanger.get(i);
+	    	for (Unit u:senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.abilityRange(), myTeam)) {
 	    		long heat = 0;
 	    		switch (u.unitType()) {
 	    		case Ranger:
