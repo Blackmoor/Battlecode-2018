@@ -834,6 +834,8 @@ public class Player {
     	LinkedList<MapLocation> options = null;
     	
     	debug(4, "bestMove from " + myLoc + " current score " + bestScore);
+		if (isStructure)
+			options = allOpenNeighbours(myLoc);
 		else
 			options = allMoveNeighbours(myLoc);
     	for (MapLocation test: options) {
