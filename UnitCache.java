@@ -19,11 +19,13 @@ public class UnitCache {
 	}
 	
 	public void updateCache() {
+		if (cacheRound == gc.round()) //Already done
+			return;
+		
 		int width = (int)gc.startingMap(gc.planet()).getWidth();
 		int height = (int)gc.startingMap(gc.planet()).getHeight();
 		
-		if (units == null || cacheRound != gc.round())
-			units = new Unit[width][height];
+		units = new Unit[width][height];
 		known = gc.units();
 		for (int i=0; i<known.size(); i++) {
 			Unit u = known.get(i);
@@ -32,6 +34,7 @@ public class UnitCache {
 				units[m.getX()][m.getY()] = u;
 			}
 		}
+		cacheRound = gc.round();
 	}
 	
 	public VecUnit allUnits() {
@@ -56,12 +59,16 @@ public class UnitCache {
 	}
 	
 	public Unit updateUnit(int id) {
-		Unit u = gc.unit(id);
-		if (u != null && u.location().isOnMap()) {
-			MapLocation here = u.location().mapLocation();
-			units[here.getX()][here.getY()] = u;
-		}
+		try {
+			Unit u = gc.unit(id);
+			if (u != null && u.location().isOnMap()) {
+				MapLocation here = u.location().mapLocation();
+				units[here.getX()][here.getY()] = u;
+			}
 		
-		return u;
+			return u;
+		} catch (Exception e) { //Unit no longer exists - possibly killed by damage
+			return null;
+		}
 	}
 }
