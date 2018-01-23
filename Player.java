@@ -1010,7 +1010,7 @@ public class Player {
 				myCombatUnits;
 		int capacity = (gc.researchInfo().getLevel(UnitType.Rocket) == 3)?12:8;
 		int rocketsNeeded = ((unitsToTransport+capacity-1) / capacity) - myLandUnits[UnitType.Rocket.ordinal()];
-		saveForFactory = (myLandUnits[UnitType.Worker.ordinal()] > 3 &&
+		saveForFactory = (myLandUnits[UnitType.Worker.ordinal()] > 0 &&
 				(myLandUnits[UnitType.Factory.ordinal()] == 0 ||
 					(myCombatUnits > 2 && myLandUnits[UnitType.Factory.ordinal()] == 1)));
 		saveForRocket = (myLandUnits[UnitType.Worker.ordinal()] > 0 && gc.researchInfo().getLevel(UnitType.Rocket) > 0 && rocketsNeeded > 0);
@@ -1329,12 +1329,18 @@ public class Player {
     	if (!saveForFactory && !saveForRocket) {
 	    	/*
 	    	 * Produce units
+	    	 * 
+	    	 * Our default is rangers for combat.
+	    	 * The number of healers we need is determined by the state of play.
+	    	 * Against Knights healers aren't as useful as more rangers. Against rangers we want more healers
+	    	 * 
+	    	 * The algorithm is adaptive, i.e. we check to see how many units need healing and create healers accordingly
 	    	 */   		
 	    	UnitType produce = UnitType.Ranger;
 	    	
 	    	if (myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, myLandUnits[UnitType.Ranger.ordinal()]))
 	    		produce = UnitType.Worker;
-	    	else if (myLandUnits[UnitType.Healer.ordinal()] < myLandUnits[UnitType.Ranger.ordinal()]/10)
+	    	else if (myLandUnits[UnitType.Healer.ordinal()] < unitsToHeal.size() / 2)
 	    		produce = UnitType.Healer;
 	    	
 	    	if (gc.canProduceRobot(fid, produce)) {
