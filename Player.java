@@ -390,11 +390,11 @@ public class Player {
      * Pick the enemy with the most damage
      * Returns true if we attacked, false if we didn't
      */
-    private static boolean attackWeakest(Unit unit) {
+    private static Unit attackWeakest(Unit unit) {
     	int id = unit.id();
     	
 		if (!unit.location().isOnMap() || !gc.isAttackReady(id))
-			return false;
+			return unit;
 		
 		//Pick the enemy with the most damage that is in range
     	long mostDamage = -1;
@@ -408,13 +408,12 @@ public class Player {
     	}
 
     	if (best == null)
-    		return false;
+    		return unit;
     	
 		debug(2, unit.unitType() + " firing on " + best.unitType());
 		gc.attack(unit.id(), best.id());
 		units.updateUnit(best.id());
-	
-		return true;
+		return units.updateUnit(id);	
     }
     
     /*
@@ -795,12 +794,7 @@ public class Player {
     		}
     	}
     	
-    	/*
-    	 * Aim to mine everything by turn 400
-    	 * The enemy might get 1/2 of it (so we need half as many workers) but it takes time to move to the karbonite
-    	 * meaning it takes about 5 times longer
-    	 */
-    	maxWorkers = Math.max(8, turnsToMine / 160); //We always want 8 for building rockets and factories
+    	maxWorkers = Math.max(8, turnsToMine / 100); //We always want 8 for building rockets and factories
     	debug(1, "We need " + maxWorkers + " workers on " + myPlanet);
     	
     	//TODO - analyse asteroids deposits to see if we should send an early rocket to Mars
@@ -1001,11 +995,12 @@ public class Player {
 				myCombatUnits;
 		int capacity = (gc.researchInfo().getLevel(UnitType.Rocket) == 3)?12:8;
 		int rocketsNeeded = ((unitsToTransport+capacity-1) / capacity) - myLandUnits[UnitType.Rocket.ordinal()];
-		saveForFactory = (myLandUnits[UnitType.Worker.ordinal()] > 0 &&
-				(myLandUnits[UnitType.Factory.ordinal()] == 0 ||
-					(myCombatUnits > 2 && myLandUnits[UnitType.Factory.ordinal()] == 1)));
+		saveForFactory = (myLandUnits[UnitType.Worker.ordinal()] > 7 && myLandUnits[UnitType.Factory.ordinal()] < 2) ||
+							(currentRound > 50 && myLandUnits[UnitType.Worker.ordinal()] > 0 && myLandUnits[UnitType.Factory.ordinal()] == 0);
 		saveForRocket = (myLandUnits[UnitType.Worker.ordinal()] > 0 && gc.researchInfo().getLevel(UnitType.Rocket) > 0 && rocketsNeeded > 0);
 		
+		if (currentRound > 200)
+			maxWorkers = 8;
     	
     	//Look for any rockets arriving on Mars in the next 10 turns and mark the tiles
     	//around the landing site as dangerous
@@ -1123,6 +1118,7 @@ public class Player {
 					debug(2, "worker blueprinting rocket");
 					myLandUnits[UnitType.Rocket.ordinal()]++;
 					saveForRocket = false;
+					return;
 				}
 				
 				int myCombatUnits = myLandUnits[UnitType.Ranger.ordinal()] +
@@ -1136,19 +1132,17 @@ public class Player {
 					debug(2, "worker blueprinting factory");
 					myLandUnits[UnitType.Factory.ordinal()]++;
 					saveForFactory = false;
+					return;
 				}
 	    	}
 		}
 		
-		unit = units.updateUnit(unit.id());
 		//Can we Harvest
-		if (unit.workerHasActed() == 0) {
-			for (Direction d: Direction.values()) {
-				if (gc.canHarvest(id, d)) {
-					gc.harvest(id, d);
-					debug(2, "worker harvesting");
-					break;
-				}
+		for (Direction d: Direction.values()) {
+			if (gc.canHarvest(id, d)) {
+				gc.harvest(id, d);
+				debug(2, "worker harvesting");
+				break;
 			}
 		}
     }
@@ -1370,8 +1364,7 @@ public class Player {
     		}
     	}
     	
-    	attackWeakest(unit);	   	
-    	
+    	unit = attackWeakest(unit);	   	  	
         unit = moveUnit(unit);
         if (unit.location().isOnMap())
     		attackWeakest(unit);
@@ -1408,10 +1401,19 @@ public class Player {
     	
     	MapLocation here = unit.location().mapLocation();
     	boolean inDanger = (danger[here.getX()][here.getY()] > 0);
-    	boolean attacked = attackWeakest(unit);
+    	boolean canAttack = gc.isAttackReady(unit.id());
+    	boolean attacked = false;
     	boolean sniping = (unit.rangerIsSniping() > 0);
     	boolean evacuating = (myPlanet == Planet.Earth && currentRound >= EvacuationRound);
     	
+    	//See if we can attack
+    	if (canAttack) {
+    		unit = attackWeakest(unit);
+    		if (gc.isAttackReady(unit.id())) //We didn't find anything to attack
+    			attacked = false;
+    		else
+    			attacked = true;
+    	}
     	if (!sniping && !attacked && !inDanger && !evacuating && enemies.size() > 0 &&
     			unit.isAbilityUnlocked() > 0 && gc.isBeginSnipeReady(unit.id())) {
     		MapLocation target = bestSnipeTarget(enemies);
@@ -1433,13 +1435,12 @@ public class Player {
     	if (!unit.location().isOnMap())
     		return;
     	
-    	attackWeakest(unit); 	
-    	
+    	unit = attackWeakest(unit); 	   	
         unit = moveUnit(unit);
         if (!unit.location().isOnMap())
     		return;
         	
-        attackWeakest(unit);
+        unit = attackWeakest(unit);
         
         if (unit.abilityHeat() < 10 && unit.isAbilityUnlocked() > 0) { //Check for javelin targets
         	int target = bestJavelinTarget(unit);
