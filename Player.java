@@ -49,15 +49,15 @@ public class Player {
 	        //Start our research 
 	        gc.queueResearch(UnitType.Worker); // Improves Karbonite harvesting (25 turns)
 	        gc.queueResearch(UnitType.Ranger); // Increase movement rate (25 turns)
+	        gc.queueResearch(UnitType.Healer); // Better Healing (25 Turns)
+	        gc.queueResearch(UnitType.Healer); // Better Healing (100 Turns)	        
 	        gc.queueResearch(UnitType.Rocket); // Allows us to build rockets (100 turns)
 	        gc.queueResearch(UnitType.Ranger); // Increase Vision Range (100 Turns)
-	        gc.queueResearch(UnitType.Ranger); // Snipe (200 Turns)	        
-	        //gc.queueResearch(UnitType.Knight);
-	        //gc.queueResearch(UnitType.Knight);
-	        //gc.queueResearch(UnitType.Knight);
-	        gc.queueResearch(UnitType.Healer); // Better Healing (25 Turns)
-	        gc.queueResearch(UnitType.Healer); // Better Healing (100 Turns)
+	        gc.queueResearch(UnitType.Ranger); // Snipe (200 Turns)	
 	        gc.queueResearch(UnitType.Healer); // Overcharge (200 Turns)
+	        //gc.queueResearch(UnitType.Knight);
+	        //gc.queueResearch(UnitType.Knight);
+	        //gc.queueResearch(UnitType.Knight);	        
 	        gc.queueResearch(UnitType.Rocket); // Faster travel
 	        gc.queueResearch(UnitType.Rocket); // Increased Capacity (12)
         }
@@ -360,7 +360,7 @@ public class Player {
     	if (!unit.location().isOnMap() || !gc.isMoveReady(id))
     		return unit;
     	
-    	Direction d = bestMove(unit, getGravityMap(unit.unitType()));   	
+    	Direction d = bestMove(unit, getGravityMap(unit.unitType()), false);   	
     	if (d == null)
     		return unit; //No where better
     	
@@ -809,7 +809,7 @@ public class Player {
      * If the unit supplied is a structure we are not trying to move it - but unload a unit from it
      * In this case we cannot pick directions containing another structure
      */
-    private static Direction bestMove(Unit t, double[][] gravityMap) {
+    private static Direction bestMove(Unit t, double[][] gravityMap, boolean move) {
     	Direction best = null;
     	
     	if (!t.location().isOnMap())
@@ -817,7 +817,7 @@ public class Player {
     	
     	MapLocation myLoc = t.location().mapLocation();
     	boolean isStructure =  (t.unitType() == UnitType.Factory || t.unitType() == UnitType.Rocket);   	
-    	double bestScore = gravityMap[myLoc.getX()][myLoc.getY()];
+    	double bestScore = (move?-100000:gravityMap[myLoc.getX()][myLoc.getY()]);
     	LinkedList<MapLocation> options = null;
     	
     	debug(4, "bestMove from " + myLoc + " current score " + bestScore);
@@ -1041,7 +1041,6 @@ public class Player {
     		return;
     	
     	int id = unit.id();
-
 		//Do we want to move to a better location
         unit = moveUnit(unit);            
         if (!unit.location().isOnMap())
@@ -1060,14 +1059,14 @@ public class Player {
     			replicate = true;
     	}
     	
-    	Direction dir = bestMove(unit, getGravityMap(unit.unitType()));
+    	Direction dir = bestMove(unit, getGravityMap(unit.unitType()), true);
     	if (dir != null && replicate && gc.canReplicate(id, dir)) {
     		gc.replicate(id, dir);
     		debug(2, "worker replicating");
     		myLandUnits[UnitType.Worker.ordinal()]++;
     		Unit newWorker = units.updateUnit(loc.add(dir));
     		processUnit(newWorker);
-    	}                
+    	}
         
         //Can we help build or repair something
     	for (MapLocation m:info[loc.getX()][loc.getY()].passableNeighbours) {			
@@ -1245,7 +1244,7 @@ public class Player {
     		//If we haven't sent out a message for units to come to us we unload them as they are probably passing through
     		if (garrisoned > 0 && rangerMap[here.getX()][here.getY()] < 1000) {
     			while (garrisoned > 0) {
-	    			Direction dir = bestMove(unit, workerMap);
+	    			Direction dir = bestMove(unit, workerMap, true);
 	    			if (dir != null && gc.canUnload(unit.id(), dir)) {
 	    				gc.unload(unit.id(), dir);
 	    				debug(2, "Unloading from rocket - passing through");
@@ -1409,11 +1408,13 @@ public class Player {
     	//See if we can attack
     	if (canAttack) {
     		unit = attackWeakest(unit);
-    		if (gc.isAttackReady(unit.id())) //We didn't find anything to attack
-    			attacked = false;
-    		else
-    			attacked = true;
+    		attacked = !gc.isAttackReady(unit.id());
     	}
+    	
+    	if (sniping && !attacked && !inDanger)
+    		return; //Keep sniping
+    	
+    	//Should we start a snipe?
     	if (!sniping && !attacked && !inDanger && !evacuating && enemies.size() > 0 &&
     			unit.isAbilityUnlocked() > 0 && gc.isBeginSnipeReady(unit.id())) {
     		MapLocation target = bestSnipeTarget(enemies);
@@ -1421,14 +1422,13 @@ public class Player {
     			gc.beginSnipe(unit.id(), target);
     			sniping = true;
     			debug(2, "Sniping on " + target);
+    			return;
     		}
     	}
     	
-    	if (!sniping || (gc.isMoveReady(unit.id()) && inDanger)) {
-	        unit = moveUnit(unit);
-	        if (unit.location().isOnMap())
-	        	attackWeakest(unit);
-    	}
+        unit = moveUnit(unit);
+        if (unit.location().isOnMap())
+        	attackWeakest(unit);
     }
     
     private static void manageKnight(Unit unit) {
