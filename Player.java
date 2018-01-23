@@ -51,13 +51,10 @@ public class Player {
 	        gc.queueResearch(UnitType.Ranger); // Increase movement rate (25 turns)
 	        gc.queueResearch(UnitType.Healer); // Better Healing (25 Turns)
 	        gc.queueResearch(UnitType.Healer); // Better Healing (100 Turns)	        
-	        gc.queueResearch(UnitType.Rocket); // Allows us to build rockets (100 turns)
 	        gc.queueResearch(UnitType.Ranger); // Increase Vision Range (100 Turns)
+	        gc.queueResearch(UnitType.Rocket); // Allows us to build rockets (100 turns)
 	        gc.queueResearch(UnitType.Ranger); // Snipe (200 Turns)	
-	        gc.queueResearch(UnitType.Healer); // Overcharge (200 Turns)
-	        //gc.queueResearch(UnitType.Knight);
-	        //gc.queueResearch(UnitType.Knight);
-	        //gc.queueResearch(UnitType.Knight);	        
+	        gc.queueResearch(UnitType.Healer); // Overcharge (200 Turns)	        
 	        gc.queueResearch(UnitType.Rocket); // Faster travel
 	        gc.queueResearch(UnitType.Rocket); // Increased Capacity (12)
         }
