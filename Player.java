@@ -47,13 +47,12 @@ public class Player {
     	
         if (myPlanet == Planet.Earth) {
 	        //Start our research 
-	        gc.queueResearch(UnitType.Worker); // Improves Karbonite harvesting (25 turns)
-	        gc.queueResearch(UnitType.Ranger); // Increase movement rate (25 turns)
+	        gc.queueResearch(UnitType.Ranger); // Increase movement rate (25 turns)	
 	        gc.queueResearch(UnitType.Healer); // Better Healing (25 Turns)
-	        gc.queueResearch(UnitType.Healer); // Better Healing (100 Turns)	        
+	        gc.queueResearch(UnitType.Healer); // Better Healing (100 Turns)
 	        gc.queueResearch(UnitType.Ranger); // Increase Vision Range (100 Turns)
 	        gc.queueResearch(UnitType.Rocket); // Allows us to build rockets (100 turns)
-	        gc.queueResearch(UnitType.Ranger); // Snipe (200 Turns)	
+	        gc.queueResearch(UnitType.Ranger); // Snipe (200 Turns)		        
 	        gc.queueResearch(UnitType.Healer); // Overcharge (200 Turns)	        
 	        gc.queueResearch(UnitType.Rocket); // Faster travel
 	        gc.queueResearch(UnitType.Rocket); // Increased Capacity (12)
@@ -166,13 +165,13 @@ public class Player {
     		if (x*x <= min)
     			continue;
     		if (cx+x < width)
-				result.add(new MapLocation(p, cx+x, cy));
+				result.add(info[cx+x][cy].here);
 			if (cy+x < height)
-				result.add(new MapLocation(p, cx, cy+x));
+				result.add(info[cx][cy+x].here);
 			if (cx-x >= 0)
-				result.add(new MapLocation(p, cx-x, cy));
+				result.add(info[cx-x][cy].here);
 			if (cy-x >= 0)
-				result.add(new MapLocation(p, cx, cy-x));
+				result.add(info[cx][cy-x].here);
     	}
     	
     	//Now the diagonals
@@ -181,15 +180,15 @@ public class Player {
     			continue;
     		if (cx+x < width) {
     			if (cy+x < height)
-    				result.add(new MapLocation(p, cx+x, cy+x));
+    				result.add(info[cx+x][cy+x].here);
     			if (cy-x >= 0)
-    				result.add(new MapLocation(p, cx+x, cy-x));
+    				result.add(info[cx+x][cy-x].here);
     		}
 			if (cx-x >= 0) {
 				if (cy+x < height)
-					result.add(new MapLocation(p, cx-x, cy+x));
+					result.add(info[cx-x][cy+x].here);
 				if (cy-x >= 0)
-					result.add(new MapLocation(p, cx-x, cy-x));
+					result.add(info[cx-x][cy-x].here);
 			}
     	}
     	
@@ -202,27 +201,27 @@ public class Player {
     				continue;
 				if (cx+x < width) {
 					if (cy+y < height)
-						result.add(new MapLocation(p, cx+x, cy+y));
+						result.add(info[cx+x][cy+y].here);
 					if (cy-y >= 0)
-						result.add(new MapLocation(p, cx+x, cy-y));
+						result.add(info[cx+x][cy-y].here);
 				}
 				if (cx-y >= 0) {
 					if (cy+x < height)
-						result.add(new MapLocation(p, cx-y, cy+x));
+						result.add(info[cx-y][cy+x].here);
 					if (cy-x >= 0)
-						result.add(new MapLocation(p, cx-y, cy-x));
+						result.add(info[cx-y][cy-x].here);
 				}
 				if (cx-x >= 0) {
 					if (cy-y >= 0)
-						result.add(new MapLocation(p, cx-x, cy-y));
+						result.add(info[cx-x][cy-y].here);
 					if (cy+y < height)
-						result.add(new MapLocation(p, cx-x, cy+y));
+						result.add(info[cx-x][cy+y].here);
 				}
 				if (cx+y < width) {
 					if (cy-x >= 0)
-						result.add(new MapLocation(p, cx+y, cy-x));				
+						result.add(info[cx+y][cy-x].here);				
 					if (cy+x < height)
-						result.add(new MapLocation(p, cx+y, cy+x));
+						result.add(info[cx+y][cy+x].here);
 				}
     		}
     	}
@@ -995,9 +994,6 @@ public class Player {
 		saveForFactory = (myLandUnits[UnitType.Worker.ordinal()] > 7 && myLandUnits[UnitType.Factory.ordinal()] < 2) ||
 							(currentRound > 50 && myLandUnits[UnitType.Worker.ordinal()] > 0 && myLandUnits[UnitType.Factory.ordinal()] == 0);
 		saveForRocket = (myLandUnits[UnitType.Worker.ordinal()] > 0 && gc.researchInfo().getLevel(UnitType.Rocket) > 0 && rocketsNeeded > 0);
-		
-		if (currentRound > 200)
-			maxWorkers = 8;
     	
     	//Look for any rockets arriving on Mars in the next 10 turns and mark the tiles
     	//around the landing site as dangerous
