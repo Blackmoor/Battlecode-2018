@@ -413,8 +413,11 @@ public class Player {
      */
     private static int unitPriority(Unit u) {
     	switch (u.unitType()) {
+    	case Mage: //Massive damage if they get close - take them out first
     		return 5;
+    	case Knight: //Similar to mages - we don't want them getting close
     		return 4;
+    	case Healer: //These make ranger battles last for ever by keeping the rangers alive
     		return 3;
     	case Ranger:
     		return 2;  	
@@ -1566,14 +1569,21 @@ public class Player {
     		return;
     	
     	if (gc.isHealReady(unit.id())) {
+    		//Pick the unit with the most damage in range
+    		long mostDamage = -1;
+    		Unit unitToHeal = null;
 	    	for (Unit u: senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.attackRange(), myTeam)) {
-	    		if (u.health() < u.maxHealth() && gc.canHeal(unit.id(), u.id())) {
-					gc.heal(unit.id(), u.id());
-					units.updateUnit(u.id());
-					unit = units.updateUnit(unit.id());
-					debug(2, "Healing " + u.unitType() + " @ " + u.location().mapLocation());
-					break;
+	    		long damage = u.maxHealth() - u.health();
+	    		if (damage > mostDamage && gc.canHeal(unit.id(), u.id())) {
+	    			mostDamage = damage;
+	    			unitToHeal = u;
 	    		}
+	    	}
+	    	if (unitToHeal != null) {
+		    	gc.heal(unit.id(), unitToHeal.id());
+				units.updateUnit(unitToHeal.id());
+				unit = units.updateUnit(unit.id());
+				debug(2, "Healing " + unitToHeal.unitType() + " @ " + unitToHeal.location().mapLocation());
 	    	}
     	}
     	
