@@ -15,17 +15,27 @@ public class UnitCache {
 	
 	public UnitCache(GameController g) {
 		gc = g;
+		known = null;
+		
+		int width = (int)gc.startingMap(gc.planet()).getWidth();
+		int height = (int)gc.startingMap(gc.planet()).getHeight();
+		
+		units = new Unit[width][height];
+		
 		updateCache();
 	}
 	
 	public void updateCache() {
 		if (cacheRound == gc.round()) //Already done
 			return;
+
+		for (int x = 0; x < units.length; x++)
+			for (int y = 0; y < units[0].length; y++)
+				units[x][y] = null;
+
+		if (known != null)
+			known.delete();
 		
-		int width = (int)gc.startingMap(gc.planet()).getWidth();
-		int height = (int)gc.startingMap(gc.planet()).getHeight();
-		
-		units = new Unit[width][height];
 		known = gc.units();
 		for (int i=0; i<known.size(); i++) {
 			Unit u = known.get(i);
