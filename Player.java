@@ -858,7 +858,8 @@ public class Player {
     	//TODO - analyse asteroids deposits to see if we should send an early rocket to Mars
     	//This could affect our research order if we want to get there really quickly
     	
-    	mars = new MapAnalyser(gc);
+    	if (myPlanet == Planet.Earth)
+    		mars = new MapAnalyser(gc);
     }   
 	
 	/*
@@ -956,7 +957,7 @@ public class Player {
     private static boolean[][] visible; //Array (x,y) of map locations: true we can see (sense) it
     private static boolean saveForFactory = false;
     private static boolean saveForRocket = false;
-    private static LinkedList<MapLocation> exploreZone = new LinkedList<MapLocation>(); //All locs that are not visible but next to a visible location
+    private static LinkedList<MapLocation> exploreZone = new LinkedList<MapLocation>(); //All locs that are passable and not visible but next to a visible location
     private static boolean conquered = false; //Set to true on Earth if we can see all the map and no enemies
     
     /*
@@ -1062,8 +1063,8 @@ public class Player {
     	if (!conquered && units.allUnits().size() > 0) {
 			for (int x=0; x<map.getWidth(); x++) {
 				for (int y=0; y<map.getHeight(); y++) {  
-					if (!visible[x][y]) { //Unseen - are we adjacent to a visible location
-						for (MapLocation m:info[x][y].neighbours) {
+					if (!visible[x][y] && info[x][y].passable) { //Unseen - are we adjacent to a visible location
+						for (MapLocation m:info[x][y].passableNeighbours) {
 							if (visible[m.getX()][m.getY()]) {
 								exploreZone.add(info[x][y].here);
 								break;
