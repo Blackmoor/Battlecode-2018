@@ -73,7 +73,6 @@ public class Player {
         		if (gc.getTimeLeftMs() > 500) {	        		
 		            updateUnits();
 		            updateKarbonite();
-		            debug(1, "Karbonite store = " + gc.karbonite() + " Map has " + karboniteLocation.size() + " sources");
 		            
 		            VecUnit known = units.allUnits();
 		            for (int i=0; i<known.size(); i++) {
@@ -409,6 +408,24 @@ public class Player {
     }
     
     /*
+     * Returns a value determined by the unit type
+     * Higher means we want to shoot this first
+     */
+    private static int unitPriority(Unit u) {
+    	switch (u.unitType()) {
+    		return 5;
+    		return 4;
+    		return 3;
+    	case Ranger:
+    		return 2;  	
+    	case Worker:
+    		return 1;
+    	default: //Buildings
+    		return 0;		
+    	}
+    }
+    
+    /*
      * attackWeakest
      * 
      * Pick the enemy with the most damage
@@ -420,14 +437,20 @@ public class Player {
 		if (!unit.location().isOnMap() || !gc.isAttackReady(id))
 			return unit;
 		
-		//Pick the enemy with the most damage that is in range
+		//Pick the enemy with the highest priority and most damage that is in range
+		int highestPriority = -1;
     	long mostDamage = -1;
     	Unit best = null;
     	
     	for (Unit enemy: senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.attackRange(), otherTeam)) {
-    		if (gc.canAttack(id, enemy.id()) && enemy.maxHealth() - enemy.health() > mostDamage) {
-    			best = enemy;
-    			mostDamage = enemy.maxHealth() - enemy.health();
+    		if (gc.canAttack(id, enemy.id())) {
+    			int priority = unitPriority(enemy);
+    			long damage = enemy.maxHealth() - enemy.health();
+    			if (priority > highestPriority || (priority == highestPriority && damage > mostDamage)) {
+	    			best = enemy;
+	    			highestPriority = priority;
+	    			mostDamage = damage;
+    			}
     		}
     	}
 
@@ -903,10 +926,8 @@ public class Player {
     private static void updateKarbonite() {
     	for (Iterator<MapLocation> iterator = karboniteLocation.iterator(); iterator.hasNext();) {
     	    MapLocation m = iterator.next();
-    		if (visible[m.getX()][m.getY()]) {
-    			if (gc.karboniteAt(m) == 0)
-    				iterator.remove();
-    		}
+    		if (visible[m.getX()][m.getY()] && gc.karboniteAt(m) == 0)
+    			iterator.remove();
     	}	
     	
     	if (myPlanet == Planet.Mars) {
@@ -1113,6 +1134,7 @@ public class Player {
     	if (dir != null && replicate && gc.canReplicate(id, dir)) {
     		gc.replicate(id, dir);
     		debug(2, "worker replicating");
+    		unit = units.updateUnit(id);
     		myLandUnits[UnitType.Worker.ordinal()]++;
     		Unit newWorker = units.updateUnit(loc.add(dir));
     		processUnit(newWorker);
@@ -1125,22 +1147,26 @@ public class Player {
 					(other.unitType() == UnitType.Factory || other.unitType() == UnitType.Rocket)) {
 				if (gc.canBuild(id, other.id())) {
 					gc.build(id, other.id());
+					unit = units.updateUnit(id);
 					debug(2, "worker building");
-					return;
 				}
 				if (other.health() < other.maxHealth() && gc.canRepair(id, other.id())) {
 					gc.repair(id, other.id());
+					unit = units.updateUnit(id);
   					debug(2, "worker is repairing");
-  					return;
 				}
 			}
 		}
+    	
+    	if (unit.workerHasActed() > 0)
+    		return;
 
 		/*
 		 * Now check to see if we want to build a factory or a rocket
-		 */			
+		 */		
+    	long k = gc.karbonite();
 		if (myPlanet == Planet.Earth &&
-				gc.karbonite() >= Math.min(bc.bcUnitTypeBlueprintCost(UnitType.Rocket),
+				k >= Math.min(bc.bcUnitTypeBlueprintCost(UnitType.Rocket),
 											bc.bcUnitTypeBlueprintCost(UnitType.Factory))) {
 	    	MapLocation buildLoc = null;
 			
@@ -1149,9 +1175,9 @@ public class Player {
 	    	 * If we want to build a rocket and we have no rockets then we destroy an adjacent unit and build there!
 	    	 */
 	    	boolean wantRocket = (saveForRocket && myLandUnits[UnitType.Rocket.ordinal()] == 0 &&
-	    			gc.karbonite() >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket));
+	    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket));
 	    	boolean wantFactory = (saveForFactory && myLandUnits[UnitType.Factory.ordinal()] == 0 &&
-	    			gc.karbonite() >= bc.bcUnitTypeBlueprintCost(UnitType.Factory));	    	
+	    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory));	    	
 	    	boolean needSacrifice = (dir == null && (wantRocket || wantFactory));
 	    	
 	    	if (needSacrifice) {
@@ -1175,12 +1201,14 @@ public class Player {
 	    	if (buildLoc != null) {
 	    		dir = loc.directionTo(buildLoc);
 				if (saveForRocket &&
-						gc.karbonite() >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket) &&
+						k >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket) &&
 						gc.canBlueprint(id, UnitType.Rocket, dir)) {
 					gc.blueprint(id, UnitType.Rocket, dir);
 					units.updateUnit(buildLoc);
+					unit = units.updateUnit(id);
 					debug(2, "worker blueprinting rocket");
 					myLandUnits[UnitType.Rocket.ordinal()]++;
+					k = gc.karbonite();
 					updateBuildPriorities();
 				}
 				
@@ -1188,10 +1216,11 @@ public class Player {
 						myLandUnits[UnitType.Mage.ordinal()] +
 						myLandUnits[UnitType.Knight.ordinal()];
 				boolean buildFactory = (saveForFactory || myCombatUnits > 4*myLandUnits[UnitType.Factory.ordinal()]);
-				if (buildFactory && !saveForRocket && gc.karbonite() >= bc.bcUnitTypeBlueprintCost(UnitType.Factory) &&
+				if (buildFactory && !saveForRocket && k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory) &&
 						gc.canBlueprint(id, UnitType.Factory, dir)) {
 					gc.blueprint(id, UnitType.Factory, dir);
 					units.updateUnit(buildLoc);
+					unit = units.updateUnit(id);
 					debug(2, "worker blueprinting factory");
 					myLandUnits[UnitType.Factory.ordinal()]++;
 					updateBuildPriorities();
@@ -1200,10 +1229,14 @@ public class Player {
 	    	}
 		}
 		
+		if (unit.workerHasActed() > 0)
+    		return;
+		
 		//Can we Harvest
 		for (Direction d: Direction.values()) {
 			if (gc.canHarvest(id, d)) {
 				gc.harvest(id, d);
+				unit = units.updateUnit(id);
 				debug(2, "worker harvesting");
 				break;
 			}
@@ -1293,6 +1326,7 @@ public class Player {
     						gc.load(id, u.id());
     						debug(2, "Rocket is loading " + u.unitType() + " before launch");
     						units.removeUnit(m);
+    						unit = units.updateUnit(id);
     					}
     				}
     				debug(2, "Launching rocket " + id + " to " + dest);
@@ -1484,6 +1518,7 @@ public class Player {
     		MapLocation target = bestSnipeTarget(enemies);
     		if (gc.canBeginSnipe(unit.id(), target)) {
     			gc.beginSnipe(unit.id(), target);
+    			unit = units.updateUnit(unit.id());
     			sniping = true;
     			debug(2, "Sniping on " + target);
     			return;
@@ -1511,6 +1546,7 @@ public class Player {
         	if (target > 0 && gc.canJavelin(unit.id(), target)) {
         		gc.javelin(unit.id(), target);
         		debug(2, "Knight is throwing a javelin");
+        		unit = units.updateUnit(unit.id());
         	}
         }
     }
@@ -1533,6 +1569,8 @@ public class Player {
 	    	for (Unit u: senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.attackRange(), myTeam)) {
 	    		if (u.health() < u.maxHealth() && gc.canHeal(unit.id(), u.id())) {
 					gc.heal(unit.id(), u.id());
+					units.updateUnit(u.id());
+					unit = units.updateUnit(unit.id());
 					debug(2, "Healing " + u.unitType() + " @ " + u.location().mapLocation());
 					break;
 	    		}
@@ -1560,6 +1598,8 @@ public class Player {
 	    	}
 	    	if (bestTarget != null) {
 				gc.overcharge(unit.id(), bestTarget.id());
+				units.updateUnit(bestTarget.id());
+				unit = units.updateUnit(unit.id());
 				debug(2, "Overcharging " + bestTarget.unitType() + " @ " + bestTarget.location().mapLocation());
 				processUnit(bestTarget);
 	    	}
