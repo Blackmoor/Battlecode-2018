@@ -46,7 +46,7 @@ public class Player {
     	scanMap();
     	
         if (myPlanet == Planet.Earth) {
-	        //Start our research 
+	        //Start our research - note we may have already queued worker research in the scanMap function
 	        gc.queueResearch(UnitType.Ranger); // Increase movement rate (25 turns)	
 	        gc.queueResearch(UnitType.Healer); // Better Healing (25 Turns)
 	        gc.queueResearch(UnitType.Healer); // Better Healing (100 Turns)
@@ -774,8 +774,11 @@ public class Player {
 		//Add Karbonite deposits
 		ripple(workerMap, karboniteLocation, 10, UnitType.Worker, workerCount);
 		
-		//Add blueprints and damaged buildings
-		ripple(workerMap, unitsToBuild, 200, UnitType.Worker, Math.min(workerCount, unitsToBuild.size()));
+		//Add blueprints and damaged buildings - this is usually a small list so do them individually
+		for (MapLocation m: unitsToBuild) {
+			LinkedList<MapLocation> workSpace = info[m.getX()][m.getY()].passableNeighbours;
+			ripple(workerMap, workSpace, 200, UnitType.Worker, Math.min(workerCount, workSpace.size()));
+		}
     }
     
     private static double[][] getGravityMap(UnitType type) {
@@ -849,6 +852,8 @@ public class Player {
     	
     	maxWorkers = Math.max(8, turnsToMine / 100); //We always want 8 for building rockets and factories
     	debug(1, "We need " + maxWorkers + " workers on " + myPlanet);
+    	if (maxWorkers > 8)
+        	gc.queueResearch(UnitType.Worker); // Increase harvest amount
     	
     	//TODO - analyse asteroids deposits to see if we should send an early rocket to Mars
     	//This could affect our research order if we want to get there really quickly
@@ -993,7 +998,7 @@ public class Player {
             		
             		if (unit.unitType().equals(UnitType.Factory) || unit.unitType().equals(UnitType.Rocket)) {
             			if (unit.structureIsBuilt() == 0 || unit.health() < unit.maxHealth())
-            				unitsToBuild.addAll(info[here.getX()][here.getY()].passableNeighbours);
+            				unitsToBuild.add(here);
 	
             			if (unit.structureIsBuilt() > 0 && unit.unitType().equals(UnitType.Rocket) && unit.rocketIsUsed() == 0)
             				rockets.add(unit);
