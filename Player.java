@@ -1175,28 +1175,8 @@ public class Player {
     		return;
         
 		MapLocation loc = unit.location().mapLocation();
-    	
-		//Check to see if we should replicate
-    	//Even if we want to replicate we might need to hold off so we can build a factory
-		int combatUnits = myLandUnits[UnitType.Ranger.ordinal()] +
-				myLandUnits[UnitType.Knight.ordinal()] +
-				myLandUnits[UnitType.Mage.ordinal()];
-    	boolean replicate = (myLandUnits[UnitType.Worker.ordinal()] < maxWorkers);
-    	
-    	if (myPlanet == Planet.Mars && LastRound - currentRound < 25) //Might as well spend all our karbonite
-    			replicate = true;
-    	
-    	Direction dir = bestMove(unit, getGravityMap(unit.unitType()), true); //Best place to build / replicate
-    	if (dir != null && replicate && gc.canReplicate(id, dir)) {
-    		gc.replicate(id, dir);
-    		debug(2, "worker replicating");
-    		unit = units.updateUnit(id);
-    		myLandUnits[UnitType.Worker.ordinal()]++;
-    		Unit newWorker = units.updateUnit(loc.add(dir));
-    		processUnit(newWorker);
-    	}
-        
-        //Can we help build or repair something
+		
+		//Can we help build or repair something
     	for (MapLocation m:info[loc.getX()][loc.getY()].passableNeighbours) {			
 			Unit other = units.unitAt(m);
 			if (other != null && other.team() == myTeam &&
@@ -1213,15 +1193,14 @@ public class Player {
 				}
 			}
 		}
-    	
-    	if (unit.workerHasActed() > 0)
-    		return;
 
 		/*
-		 * Now check to see if we want to build a factory or a rocket
+		 * Now check to see if we want to blueprint a factory or a rocket
 		 */		
-    	long k = gc.karbonite();
-		if (myPlanet == Planet.Earth &&
+    	long k = gc.karbonite(); 	
+    	Direction dir = bestMove(unit, getGravityMap(unit.unitType()), true); //Best place to build
+    	   
+		if (unit.workerHasActed() == 0 && myPlanet == Planet.Earth &&
 				k >= Math.min(bc.bcUnitTypeBlueprintCost(UnitType.Rocket),
 											bc.bcUnitTypeBlueprintCost(UnitType.Factory))) {
 	    	MapLocation buildLoc = null;
@@ -1266,6 +1245,7 @@ public class Player {
 					myLandUnits[UnitType.Rocket.ordinal()]++;
 					k = gc.karbonite();
 					updateBuildPriorities();
+					dir = bestMove(unit, getGravityMap(unit.unitType()), true); //Update as we might replicate
 				}
 				
 				if (!saveForRocket && k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory) &&
@@ -1276,23 +1256,37 @@ public class Player {
 					debug(2, "worker blueprinting factory");
 					myLandUnits[UnitType.Factory.ordinal()]++;
 					updateBuildPriorities();
-					return;
+					dir = bestMove(unit, getGravityMap(unit.unitType()), true); //Update as we might replicate
 				}
 	    	}
 		}
 		
-		if (unit.workerHasActed() > 0)
-    		return;
-		
 		//Can we Harvest
-		for (Direction d: Direction.values()) {
-			if (gc.canHarvest(id, d)) {
-				gc.harvest(id, d);
-				unit = units.updateUnit(id);
-				debug(2, "worker harvesting");
-				break;
+		if (unit.workerHasActed() == 0) {
+			for (Direction d: Direction.values()) {
+				if (gc.canHarvest(id, d)) {
+					gc.harvest(id, d);
+					unit = units.updateUnit(id);
+					debug(2, "worker harvesting");
+					break;
+				}
 			}
 		}
+		
+		//Check to see if we should replicate
+    	boolean replicate = (myLandUnits[UnitType.Worker.ordinal()] < maxWorkers);   	
+    	if (myPlanet == Planet.Mars && LastRound - currentRound < 25) //Might as well spend all our karbonite
+    			replicate = true;
+    
+		//We can replicate even if we have acted
+    	if (dir != null && replicate && gc.canReplicate(id, dir)) {
+    		gc.replicate(id, dir);
+    		debug(2, "worker replicating");
+    		unit = units.updateUnit(id);
+    		myLandUnits[UnitType.Worker.ordinal()]++;
+    		Unit newWorker = units.updateUnit(loc.add(dir));
+    		processUnit(newWorker);
+    	}
     }
     
     /***********************************************************************************
