@@ -137,10 +137,7 @@ public class Player {
 			saveForRocket = (myLandUnits[UnitType.Worker.ordinal()] > 0 && rocketsNeeded > 0);
 		else
 			saveForRocket = (myLandUnits[UnitType.Worker.ordinal()] > 0 && conquered && 
-								rocketsNeeded * bc.bcUnitTypeBlueprintCost(UnitType.Rocket) > gc.karbonite());
-		
-		saveForFactory = (myLandUnits[UnitType.Worker.ordinal()] > ((strategy == UnitType.Ranger)?7:0) && myLandUnits[UnitType.Factory.ordinal()] < 1);
-				
+								rocketsNeeded * bc.bcUnitTypeBlueprintCost(UnitType.Rocket) > gc.karbonite());		
     }
     
     /***************************************************************************************
@@ -1006,7 +1003,6 @@ public class Player {
     private static LinkedList<Unit> enemies = new LinkedList<Unit>(); //List of all enemy units in sight
     private static int[][] danger; //Array (x,y) of map locations and how much damage a unit would take there
     private static boolean[][] visible; //Array (x,y) of map locations: true we can see (sense) it
-    private static boolean saveForFactory = false;
     private static boolean saveForRocket = false;
     private static LinkedList<MapLocation> exploreZone = new LinkedList<MapLocation>(); //All locs that are passable and not visible but next to a visible location
     private static boolean conquered = false; //Set to true on Earth if we can see all the map and no enemies
@@ -1185,19 +1181,12 @@ public class Player {
 		int combatUnits = myLandUnits[UnitType.Ranger.ordinal()] +
 				myLandUnits[UnitType.Knight.ordinal()] +
 				myLandUnits[UnitType.Mage.ordinal()];
-    	boolean replicate = (myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, combatUnits));
-    	if (myLandUnits[UnitType.Factory.ordinal()] <= 1)
-    		replicate = (myLandUnits[UnitType.Worker.ordinal()] < 8);
+    	boolean replicate = (myLandUnits[UnitType.Worker.ordinal()] < maxWorkers);
     	
-    	if (myPlanet == Planet.Earth) {
-	    	if (saveForFactory)
-	    		replicate = false;
-    	} else { //Mars
-    		if (LastRound - currentRound < 25) //Might as well spend all our karbonite
+    	if (myPlanet == Planet.Mars && LastRound - currentRound < 25) //Might as well spend all our karbonite
     			replicate = true;
-    	}
     	
-    	Direction dir = bestMove(unit, getGravityMap(unit.unitType()), true); //Best place to build / replicate  	
+    	Direction dir = bestMove(unit, getGravityMap(unit.unitType()), true); //Best place to build / replicate
     	if (dir != null && replicate && gc.canReplicate(id, dir)) {
     		gc.replicate(id, dir);
     		debug(2, "worker replicating");
@@ -1243,7 +1232,7 @@ public class Player {
 	    	 */
 	    	boolean wantRocket = (saveForRocket && myLandUnits[UnitType.Rocket.ordinal()] == 0 &&
 	    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket));
-	    	boolean wantFactory = (saveForFactory && myLandUnits[UnitType.Factory.ordinal()] == 0 &&
+	    	boolean wantFactory = (myLandUnits[UnitType.Factory.ordinal()] == 0 &&
 	    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory));	    	
 	    	boolean needSacrifice = (dir == null && (wantRocket || wantFactory));
 	    	
@@ -1279,13 +1268,7 @@ public class Player {
 					updateBuildPriorities();
 				}
 				
-				int myCombatUnits = myLandUnits[UnitType.Ranger.ordinal()] +
-						myLandUnits[UnitType.Mage.ordinal()] +
-						myLandUnits[UnitType.Knight.ordinal()];
-				boolean buildFactory = (saveForFactory ||
-									myCombatUnits > 4*myLandUnits[UnitType.Factory.ordinal()] ||
-									k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory));
-				if (buildFactory && !saveForRocket && k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory) &&
+				if (!saveForRocket && k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory) &&
 						gc.canBlueprint(id, UnitType.Factory, dir)) {
 					gc.blueprint(id, UnitType.Factory, dir);
 					units.updateUnit(buildLoc);
@@ -1466,7 +1449,7 @@ public class Player {
 			unit = units.updateUnit(unit.id()); //Update garrison info
     	}
     	
-    	if (!saveForFactory && !saveForRocket) {
+    	if (!saveForRocket) {
 	    	/*
 	    	 * Produce units
 	    	 * 
