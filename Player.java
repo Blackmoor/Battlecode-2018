@@ -16,6 +16,7 @@ public class Player {
 	private static Planet myPlanet; //(Earth or Mars)
     private static PlanetMap map;	//Initial map 
     private static MapAnalyser mars;
+    private static MapAnalyser earth;
     
     private static long currentRound; //Updated each turn
     private static UnitCache units; //The list of all known units - updated each turn in the main loop   
@@ -24,7 +25,7 @@ public class Player {
     private static Random randomness = new Random(74921);
     private static LinkedList<MapLocation> karboniteLocation = new LinkedList<MapLocation>(); //Initialised with starting values and updated as we sense tiles with new values
     
-    private static final UnitType strategy = UnitType.Ranger; // 0 = Rangers, 1 = Knights
+    private static UnitType strategy = UnitType.Ranger; //Our primary attacking unit
     private static final long LastRound = 1000;
     private static final long EvacuationRound = 600;
     private static final long FloodTurn = 749;
@@ -45,22 +46,6 @@ public class Player {
         units = new UnitCache(gc);
         
     	scanMap();
-    	
-        if (myPlanet == Planet.Earth) {
-	        //Start our research - note we may have already queued worker research in the scanMap function  	
-    		gc.queueResearch(strategy); // Increase movement rate (25 turns) or increased DR
-	        gc.queueResearch(UnitType.Healer); // Better Healing (25 Turns)
-	        gc.queueResearch(UnitType.Healer); // Better Healing (100 Turns)
-	        gc.queueResearch(strategy); // Increase Vision Range (100 Turns) or increased DR
-	        gc.queueResearch(UnitType.Rocket); // Allows us to build rockets (50 turns)
-	        gc.queueResearch(strategy); // Snipe (200 Turns) or Javelin      
-	        gc.queueResearch(UnitType.Healer); // Overcharge (200 Turns)	        
-	        gc.queueResearch(UnitType.Mage);   // Damage +15 (25 Turns)
-	        gc.queueResearch(UnitType.Mage);   // Damage +15 (75 Turns)
-	        gc.queueResearch(UnitType.Mage);   // Damage +15 (100 Turns)
-	        gc.queueResearch(UnitType.Mage);   // Blink (75 Turns)
-
-        }
         
         runPlanet();
     }
@@ -75,6 +60,7 @@ public class Player {
         		if (gc.getTimeLeftMs() > 500) {	        		
 		            updateUnits();
 		            updateKarbonite();
+		            updateResearch();
 		            
 		            VecUnit known = units.allUnits();
 		            for (int i=0; i<known.size(); i++) {
@@ -860,8 +846,13 @@ public class Player {
     	//TODO - analyse asteroids deposits to see if we should send an early rocket to Mars
     	//This could affect our research order if we want to get there really quickly
     	
-    	if (myPlanet == Planet.Earth)
-    		mars = new MapAnalyser(gc);
+    	if (myPlanet == Planet.Earth) {
+    		mars = new MapAnalyser(gc, gc.startingMap(Planet.Mars), null);
+    		earth = new MapAnalyser(gc, gc.startingMap(Planet.Earth), info);
+        	
+        	if (map.getWidth() * map.getHeight() <= 900 && earth.zones.size() == 1)
+        		strategy = UnitType.Knight;
+    	}
     }   
 	
 	/*
@@ -946,6 +937,30 @@ public class Player {
     			MapLocation strike = gc.asteroidPattern().asteroid(currentRound).getLocation();
     			karboniteLocation.add(strike);
     		}
+    	}
+    }
+    
+    /*
+     * Decide what to research next based on the current strategy and game position
+     */
+    private static void updateResearch() {
+    	ResearchInfo ri = gc.researchInfo();
+    	
+    	if (ri.hasNextInQueue())
+    		return;
+    	
+    	if ((conquered || currentRound > 200) && ri.getLevel(UnitType.Rocket) == 0) { //Time for rockets
+    		gc.queueResearch(UnitType.Rocket);
+    	} else if (ri.getLevel(strategy) == 0) { //We get the level 1 for our preferred unit first
+    		gc.queueResearch(strategy);
+    	} else if (ri.getLevel(UnitType.Healer) < 2) { //We upgrade Healers twice before finishing off our preferred units
+    		gc.queueResearch(UnitType.Healer);
+    	} else if (ri.getLevel(strategy) < 3) { // Complete our strategy unit
+    		gc.queueResearch(strategy);
+    	} else if (ri.getLevel(UnitType.Healer) < 3) { // Overcharge
+    		gc.queueResearch(UnitType.Healer);
+    	} else if (ri.getLevel(UnitType.Mage) < 4) {
+    		gc.queueResearch(UnitType.Mage);
     	}
     }
     
@@ -1440,8 +1455,10 @@ public class Player {
 	    	
 	    	if (myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, myLandUnits[strategy.ordinal()]))
 	    		produce = UnitType.Worker;
-	    	else if (myLandUnits[UnitType.Healer.ordinal()] < unitsToHeal.size())
+	    	else if (myLandUnits[UnitType.Healer.ordinal()] < Math.max(unitsToHeal.size(), myLandUnits[strategy.ordinal()] / 8))
 	    		produce = UnitType.Healer;
+	    	else if (currentRound > EvacuationRound)
+	    		produce = UnitType.Mage;
 	    	
 	    	if (gc.canProduceRobot(fid, produce)) {
 				gc.produceRobot(fid, produce);

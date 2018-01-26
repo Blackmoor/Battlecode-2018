@@ -9,8 +9,8 @@ public class MapAnalyser {
 	private PlanetMap			map; //The map being analysed
 	private short[][]			zoneArray; //Indexed by x,y coords - contains the zoneId of the location
 	
-	public MapAnalyser(GameController gc) {
-		map = gc.startingMap(Planet.Mars);
+	public MapAnalyser(GameController gc, PlanetMap pm, MapInfo[][] info) {
+		map = pm;
 		
 		/*
 		 * We scan for zones in the map using a flood search (BFS) and mark each one with a unique id
@@ -39,7 +39,7 @@ public class MapAnalyser {
 		for (int x=0; x<map.getWidth(); x++) {
 			for (int y=0; y<map.getHeight(); y++) {
 				if (zoneArray[x][y] > 0) {
-					MapLocation here = new MapLocation(map.getPlanet(), x, y);
+					MapLocation here = (info != null ? info[x][y].here: new MapLocation(map.getPlanet(), x, y));
 					MapZone zone = zones.get(zoneArray[x][y]-1);
 					zone.tiles.add(here);
 					zone.landingSites.add(here);
