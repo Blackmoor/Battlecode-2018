@@ -880,6 +880,8 @@ public class Player {
         	debug(0, "Earth has " + earth.zones.size() + " zones, separated = " + separated);
         	
         	if (separated) {
+        		//Get to mars quickly
+        		gc.queueResearch(UnitType.Rocket);
         		if (Math.max(gc.startingMap(Planet.Mars).getWidth(), gc.startingMap(Planet.Mars).getHeight()) <= 30 && mars.zones.size() == 1)
         			strategy = UnitType.Knight;
         	} else if (Math.max(map.getWidth(), map.getHeight()) <= 30) // We are on a small map and connected
@@ -1455,7 +1457,7 @@ public class Player {
     			Direction dir = bestMove(unit, getGravityMap(strategy), true);
     			if (dir != null && gc.canUnload(unit.id(), dir)) {
     				gc.unload(unit.id(), dir);
-    				debug(2, "Unloading from factory - passing through");
+    				debug(2, "Unloading from factory");
     				MapLocation where = unit.location().mapLocation().add(dir);	        			
     	    		processUnit(units.updateUnit(where));
     			}
