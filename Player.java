@@ -24,6 +24,7 @@ public class Player {
     private static Random randomness = new Random(74921);
     private static LinkedList<MapLocation> karboniteLocation = new LinkedList<MapLocation>(); //Initialised with starting values and updated as we sense tiles with new values
     
+    private static final UnitType strategy = UnitType.Ranger; // 0 = Rangers, 1 = Knights
     private static final long LastRound = 1000;
     private static final long EvacuationRound = 600;
     private static final long FloodTurn = 749;
@@ -46,18 +47,19 @@ public class Player {
     	scanMap();
     	
         if (myPlanet == Planet.Earth) {
-	        //Start our research - note we may have already queued worker research in the scanMap function
-	        gc.queueResearch(UnitType.Ranger); // Increase movement rate (25 turns)	
+	        //Start our research - note we may have already queued worker research in the scanMap function  	
+    		gc.queueResearch(strategy); // Increase movement rate (25 turns) or increased DR
 	        gc.queueResearch(UnitType.Healer); // Better Healing (25 Turns)
 	        gc.queueResearch(UnitType.Healer); // Better Healing (100 Turns)
-	        gc.queueResearch(UnitType.Ranger); // Increase Vision Range (100 Turns)
+	        gc.queueResearch(strategy); // Increase Vision Range (100 Turns) or increased DR
 	        gc.queueResearch(UnitType.Rocket); // Allows us to build rockets (50 turns)
-	        gc.queueResearch(UnitType.Ranger); // Snipe (200 Turns)		        
+	        gc.queueResearch(strategy); // Snipe (200 Turns) or Javelin      
 	        gc.queueResearch(UnitType.Healer); // Overcharge (200 Turns)	        
 	        gc.queueResearch(UnitType.Mage);   // Damage +15 (25 Turns)
 	        gc.queueResearch(UnitType.Mage);   // Damage +15 (75 Turns)
 	        gc.queueResearch(UnitType.Mage);   // Damage +15 (100 Turns)
 	        gc.queueResearch(UnitType.Mage);   // Blink (75 Turns)
+
         }
         
         runPlanet();
@@ -150,7 +152,7 @@ public class Player {
 			saveForRocket = (myLandUnits[UnitType.Worker.ordinal()] > 0 && conquered && 
 								rocketsNeeded * bc.bcUnitTypeBlueprintCost(UnitType.Rocket) > gc.karbonite());
 		
-		saveForFactory = (myLandUnits[UnitType.Worker.ordinal()] > 7 && myLandUnits[UnitType.Factory.ordinal()] < 2);
+		saveForFactory = (myLandUnits[UnitType.Worker.ordinal()] > ((strategy == UnitType.Ranger)?7:0) && myLandUnits[UnitType.Factory.ordinal()] < 1);
 				
     }
     
@@ -181,7 +183,7 @@ public class Player {
     	
     	int width = (int) map.getWidth(), height = (int) map.getHeight();
     	
-    	if (min > 0)
+    	if (min < 0)
     		result.add(centre);
     	
     	//The tiles in the resultant circle will be 4 way symmetric along the diagonals and vertices
@@ -934,7 +936,7 @@ public class Player {
      */
     private static void updateKarbonite() {
     	for (Iterator<MapLocation> iterator = karboniteLocation.iterator(); iterator.hasNext();) {
-    	    MapLocation m = iterator.next();
+    	    MapLocation m = iterator.next();   	    
     		if (visible[m.getX()][m.getY()] && gc.karboniteAt(m) == 0)
     			iterator.remove();
     	}	
@@ -988,9 +990,10 @@ public class Player {
             		
             		//Update visibility
             		LinkedList<MapLocation> within = null;           		
-            		if (unit.visionRange() == 2)
+            		if (unit.visionRange() == 2) {
             			within = info[here.getX()][here.getY()].neighbours;
-            		else
+            			visible[here.getX()][here.getY()] = true;
+            		} else
             			within = allLocationsWithin(here, -1, unit.visionRange());
             		for (MapLocation m: within) {
         				int x = m.getX(), y = m.getY();
@@ -1024,7 +1027,7 @@ public class Player {
 	            			break;
 	            		case Knight: //Increase radius to 30 to account for them moving then attacking
 	            		case Mage:
-	            			for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), 0, Math.max(30, unit.attackRange()))) {
+	            			for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), -1, Math.max(30, unit.attackRange()))) {
 	            				int x = m.getX(), y = m.getY();
 	            				danger[x][y] += unit.damage();
 	            			}
@@ -1130,7 +1133,13 @@ public class Player {
     	
 		//Check to see if we should replicate
     	//Even if we want to replicate we might need to hold off so we can build a factory
-    	boolean replicate = (myLandUnits[UnitType.Worker.ordinal()] < maxWorkers);
+		int combatUnits = myLandUnits[UnitType.Ranger.ordinal()] +
+				myLandUnits[UnitType.Knight.ordinal()] +
+				myLandUnits[UnitType.Mage.ordinal()];
+    	boolean replicate = (myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, combatUnits));
+    	if (myLandUnits[UnitType.Factory.ordinal()] <= 1)
+    		replicate = (myLandUnits[UnitType.Worker.ordinal()] < 8);
+    	
     	if (myPlanet == Planet.Earth) {
 	    	if (saveForFactory)
 	    		replicate = false;
@@ -1427,9 +1436,9 @@ public class Player {
 	    	 * 
 	    	 * The algorithm is adaptive, i.e. we check to see how many units need healing and create healers accordingly
 	    	 */   		
-	    	UnitType produce = UnitType.Ranger;
+	    	UnitType produce = strategy;
 	    	
-	    	if (myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, myLandUnits[UnitType.Ranger.ordinal()]))
+	    	if (myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, myLandUnits[strategy.ordinal()]))
 	    		produce = UnitType.Worker;
 	    	else if (myLandUnits[UnitType.Healer.ordinal()] < unitsToHeal.size())
 	    		produce = UnitType.Healer;
@@ -1455,7 +1464,7 @@ public class Player {
     		updateMageMap();
     		double bestScore = mageMap[here.getX()][here.getY()];
     		MapLocation bestOption = here;
-    		for (MapLocation o:allLocationsWithin(here, 0, unit.abilityRange())) {
+    		for (MapLocation o:allLocationsWithin(here, -1, unit.abilityRange())) {
     			if (mageMap[o.getX()][o.getY()] > bestScore && info[o.getX()][o.getY()].passable &&
     					units.unitAt(o) == null) {
     				bestScore = mageMap[o.getX()][o.getY()];
