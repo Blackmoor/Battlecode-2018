@@ -744,7 +744,7 @@ public class Player {
     		targets.add(u.location().mapLocation());  	
     	ripple(knightMap, targets, 30, UnitType.Knight, knightCount);
     	
-    	if (enemies.size() == 0 && myLandUnits[UnitType.Knight.ordinal()] > 20)
+    	if (enemies.size() == 0)
     		ripple(knightMap, exploreZone, 30, UnitType.Knight, knightCount);
     }
     
@@ -1447,32 +1447,21 @@ public class Player {
     	int fid = unit.id();
     	long garrisoned = unit.structureGarrison().size();
     	//Unload units if possible
-    	while (garrisoned > 0) {
-    		LinkedList<MapLocation> options = allOpenNeighbours(unit.location().mapLocation());
-    		//Pick a random unload direction - if it is not safe keep looking
-    		if (options.size() == 0)
-    			break;
-    		
-    		int r = randomness.nextInt(options.size());
-	    	Direction best = null;
-	    	for (int i=0; i < options.size(); i++) {
-	    		MapLocation m = options.get((i+r)%options.size());
-	    		Direction dir = unit.location().mapLocation().directionTo(m);
-	    		if (gc.canUnload(fid, dir)) {
-		    		if (best == null || danger[m.getX()][m.getY()] == 0)
-		    			best = dir;
-		    		if (danger[m.getX()][m.getY()] == 0)
-		    			break;
-	    		}
-	    	}
-	    	if (best == null)
-	    		break;
-
-    		gc.unload(fid, best);
-    		debug(2, "unloading from factory");
-    		garrisoned--;
-    		MapLocation where = unit.location().mapLocation().add(best);
-    		processUnit(units.updateUnit(where));
+    	if (garrisoned > 0) {
+    		/*
+    		 * Pick the direction our strategy unit would move
+    		 */
+			while (garrisoned > 0) {
+    			Direction dir = bestMove(unit, getGravityMap(strategy), true);
+    			if (dir != null && gc.canUnload(unit.id(), dir)) {
+    				gc.unload(unit.id(), dir);
+    				debug(2, "Unloading from factory - passing through");
+    				MapLocation where = unit.location().mapLocation().add(dir);	        			
+    	    		processUnit(units.updateUnit(where));
+    			}
+    			garrisoned--;
+			}
+			unit = units.updateUnit(unit.id()); //Update garrison info
     	}
     	
     	if (!saveForFactory && !saveForRocket) {
