@@ -20,7 +20,7 @@ public class MapAnalyser {
 		
 		for (int x=0; x<map.getWidth(); x++) {
 			for (int y=0; y<map.getHeight(); y++) {
-				MapLocation here = new MapLocation(map.getPlanet(), x, y);
+				MapLocation here = getLocation(info, x, y);
 				if (map.isPassableTerrainAt(here) > 0 && zoneArray[x][y] == 0) {
 					flood(here, zoneArray, currentZone);
 					currentZone++;
@@ -39,24 +39,29 @@ public class MapAnalyser {
 		for (int x=0; x<map.getWidth(); x++) {
 			for (int y=0; y<map.getHeight(); y++) {
 				if (zoneArray[x][y] > 0) {
-					MapLocation here = (info != null ? info[x][y].here: new MapLocation(map.getPlanet(), x, y));
+					MapLocation here = getLocation(info, x, y);
 					MapZone zone = zones.get(zoneArray[x][y]-1);
 					zone.tiles.add(here);
 					zone.landingSites.add(here);
+					zone.karbonite += map.initialKarboniteAt(here);
+					if (info != null)
+						info[x][y].zone = zone.id;
 				}
 			}
 		}
 		
 		/*
-		 * Now process the asteroids and add to each zone
-		 */
-		for (int round=0; round<1000; round++) {
-			if (gc.asteroidPattern().hasAsteroid(round)) {
-				MapLocation where = gc.asteroidPattern().asteroid(round).getLocation();
-				long karbonite = gc.asteroidPattern().asteroid(round).getKarbonite();
-				int zoneID = zoneArray[where.getX()][where.getY()];
-				if (zoneID > 0)
-					zones.get(zoneID-1).karbonite += karbonite;
+		 * On Mars we add the asteroids info
+		 */		
+		if (map.getPlanet() == Planet.Mars) {
+			for (int round=0; round<1000; round++) {
+				if (gc.asteroidPattern().hasAsteroid(round)) {
+					MapLocation where = gc.asteroidPattern().asteroid(round).getLocation();
+					long karbonite = gc.asteroidPattern().asteroid(round).getKarbonite();
+					int zoneID = zoneArray[where.getX()][where.getY()];
+					if (zoneID > 0)
+						zones.get(zoneID-1).karbonite += karbonite;
+				}
 			}
 		}
 		
@@ -68,6 +73,13 @@ public class MapAnalyser {
 	
 	public int getZone(MapLocation m) {
 		return zoneArray[m.getX()][m.getY()];
+	}
+	
+	private MapLocation getLocation(MapInfo[][] m, int x, int y) {
+		if (m == null)
+			return new MapLocation(map.getPlanet(), x, y);
+		
+		return m[x][y].here;
 	}
 	
 	private void flood(MapLocation start, short[][] zone, short zoneID) {

@@ -4,6 +4,7 @@ import java.util.LinkedList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Random;
 
@@ -617,7 +618,7 @@ public class Player {
      */
     private static void initGravityMaps() {   	 	
 		for (double[][] me:allMaps) {
-			boolean ignoreDanger = (me == knightMap || (me == rangerMap && currentRound % 10 == 0));
+			boolean ignoreDanger = (me == knightMap || (me == rangerMap && currentRound % 16 == 0));
 	    	for (int x=0; x<map.getWidth(); x++) {
 	    		for (int y=0; y<map.getHeight(); y++) {
 		    			me[x][y] = randomness.nextDouble() / 10000.0;
@@ -847,10 +848,41 @@ public class Player {
     	//This could affect our research order if we want to get there really quickly
     	
     	if (myPlanet == Planet.Earth) {
-    		mars = new MapAnalyser(gc, gc.startingMap(Planet.Mars), null);
     		earth = new MapAnalyser(gc, gc.startingMap(Planet.Earth), info);
+    		mars = new MapAnalyser(gc, gc.startingMap(Planet.Mars), null);
+   		
+    		/*
+    		 * Work out if we are in the same zone as an opponent
+    		 * If not we can build units best suited for mars
+    		 */
+    		boolean separated = false; //Set to true if we start in a zone where the enemy isn't
+    		
+        	if (earth.zones.size() > 1) {
+        		VecUnit start = map.getInitial_units();
+        		HashSet<Integer> myZones = new HashSet<Integer>();
+        		HashSet<Integer> enemyZones = new HashSet<Integer>();
+        		
+        		for (int i=0; i<start.size(); i++) {
+        			Unit u = start.get(i);
+        			MapLocation where = u.location().mapLocation();
+        			if (u.team() == myTeam)
+        				myZones.add(info[where.getX()][where.getY()].zone);
+        			else
+        				enemyZones.add(info[where.getX()][where.getY()].zone);
+        		}
+        		
+        		//Check to see if we are in any zones that the enemy isn't
+        		for (int zone: myZones)
+        			if (!enemyZones.contains(zone))
+        				separated = true;
+        	}
         	
-        	if (map.getWidth() * map.getHeight() <= 900 && earth.zones.size() == 1)
+        	debug(0, "Earth has " + earth.zones.size() + " zones, separated = " + separated);
+        	
+        	if (separated) {
+        		if (Math.max(gc.startingMap(Planet.Mars).getWidth(), gc.startingMap(Planet.Mars).getHeight()) <= 30 && mars.zones.size() == 1)
+        			strategy = UnitType.Knight;
+        	} else if (Math.max(map.getWidth(), map.getHeight()) <= 30) // We are on a small map and connected
         		strategy = UnitType.Knight;
     	}
     }   
@@ -1248,7 +1280,9 @@ public class Player {
 				int myCombatUnits = myLandUnits[UnitType.Ranger.ordinal()] +
 						myLandUnits[UnitType.Mage.ordinal()] +
 						myLandUnits[UnitType.Knight.ordinal()];
-				boolean buildFactory = (saveForFactory || myCombatUnits > 4*myLandUnits[UnitType.Factory.ordinal()]);
+				boolean buildFactory = (saveForFactory ||
+									myCombatUnits > 4*myLandUnits[UnitType.Factory.ordinal()] ||
+									k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory));
 				if (buildFactory && !saveForRocket && k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory) &&
 						gc.canBlueprint(id, UnitType.Factory, dir)) {
 					gc.blueprint(id, UnitType.Factory, dir);
@@ -1455,7 +1489,7 @@ public class Player {
 	    	
 	    	if (myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, myLandUnits[strategy.ordinal()]))
 	    		produce = UnitType.Worker;
-	    	else if (myLandUnits[UnitType.Healer.ordinal()] < Math.max(unitsToHeal.size(), myLandUnits[strategy.ordinal()] / 8))
+	    	else if (myLandUnits[UnitType.Healer.ordinal()] < Math.max(unitsToHeal.size()*2, myLandUnits[strategy.ordinal()] / 8))
 	    		produce = UnitType.Healer;
 	    	else if (currentRound > EvacuationRound)
 	    		produce = UnitType.Mage;

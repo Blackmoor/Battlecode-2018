@@ -5,6 +5,7 @@ import bc.MapLocation;
 public class MapInfo {
 	public MapLocation 				here;
 	public boolean					passable;
+	public int						zone; //The zone number we are part of
 	
 	public LinkedList<MapLocation>	neighbours;
 	public LinkedList<MapLocation>	passableNeighbours;
@@ -20,5 +21,6 @@ public class MapInfo {
 		passable = p;
 		neighbours = null;
 		passableNeighbours = null;
+		zone = 0;
 	}
 }
