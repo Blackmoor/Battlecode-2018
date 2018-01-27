@@ -10,6 +10,10 @@ import java.util.Random;
 
 import bc.*;
 
+/*
+ * TODO
+ * Investigate if a gravity map for damaged units makes sense
+ */
 public class Player {
 	private static GameController gc;
 	private static Team myTeam; //Red or Blue
@@ -474,7 +478,7 @@ public class Player {
     	if (best != null)
     		return best.location().mapLocation();
     	
-    	//No enemies - try a random location
+    	//No enemies - try a random location just out of sight range
     	if (exploreZone.size() > 0) {
     		int r = randomness.nextInt(exploreZone.size());
     		return exploreZone.get(r);
@@ -692,8 +696,11 @@ public class Player {
 
     	ripple(rangerMap, targets, 30, UnitType.Ranger, rangerCount);
 
-    	if (enemies.size() == 0)
-    		ripple(rangerMap, exploreZone, 30, UnitType.Ranger, rangerCount);
+    	//If no enemies - explore
+    	if (enemies.size() == 0) {
+    		LinkedList<MapLocation> explore = (currentRound < 200 && enemyLocs.size() > 0)?enemyLocs:exploreZone;
+	    	ripple(rangerMap, explore, 30, UnitType.Ranger, rangerCount);
+    	}
     }
     
     private static void updateMageMap() {
@@ -741,8 +748,11 @@ public class Player {
     		targets.add(u.location().mapLocation());  	
     	ripple(knightMap, targets, 30, UnitType.Knight, knightCount);
     	
-    	if (enemies.size() == 0)
-    		ripple(knightMap, exploreZone, 30, UnitType.Knight, knightCount);
+    	//If no enemies - explore
+    	if (enemies.size() == 0) {
+    		LinkedList<MapLocation> explore = (currentRound < 200 && enemyLocs.size() > 0)?enemyLocs:exploreZone;
+    		ripple(knightMap, explore, 30, UnitType.Knight, knightCount);
+    	}
     }
     
     /*
@@ -853,26 +863,25 @@ public class Player {
     		 * If not we can build units best suited for mars
     		 */
     		boolean separated = false; //Set to true if we start in a zone where the enemy isn't
+    		VecUnit start = map.getInitial_units();
+    		HashSet<Integer> myZones = new HashSet<Integer>();
+    		HashSet<Integer> enemyZones = new HashSet<Integer>();
     		
-        	if (earth.zones.size() > 1) {
-        		VecUnit start = map.getInitial_units();
-        		HashSet<Integer> myZones = new HashSet<Integer>();
-        		HashSet<Integer> enemyZones = new HashSet<Integer>();
-        		
-        		for (int i=0; i<start.size(); i++) {
-        			Unit u = start.get(i);
-        			MapLocation where = u.location().mapLocation();
-        			if (u.team() == myTeam)
-        				myZones.add(info[where.getX()][where.getY()].zone);
-        			else
-        				enemyZones.add(info[where.getX()][where.getY()].zone);
-        		}
-        		
-        		//Check to see if we are in any zones that the enemy isn't
-        		for (int zone: myZones)
-        			if (!enemyZones.contains(zone))
-        				separated = true;
-        	}
+    		for (int i=0; i<start.size(); i++) {
+    			Unit u = start.get(i);
+    			MapLocation where = u.location().mapLocation();
+    			if (u.team() == myTeam)
+    				myZones.add(info[where.getX()][where.getY()].zone);
+    			else {
+    				enemyZones.add(info[where.getX()][where.getY()].zone);
+    				enemyLocs.add(where);
+    			}
+    		}
+    		
+    		//Check to see if we are in any zones that the enemy isn't
+    		for (int zone: myZones)
+    			if (!enemyZones.contains(zone))
+    				separated = true;
         	
         	debug(0, "Earth has " + earth.zones.size() + " zones, separated = " + separated);
         	
@@ -1005,6 +1014,7 @@ public class Player {
     private static boolean[][] visible; //Array (x,y) of map locations: true we can see (sense) it
     private static boolean saveForRocket = false;
     private static LinkedList<MapLocation> exploreZone = new LinkedList<MapLocation>(); //All locs that are passable and not visible but next to a visible location
+    private static LinkedList<MapLocation> enemyLocs = new LinkedList<MapLocation>(); //Start position of the enemy - used in place of the exploreZone at the start of the game
     private static boolean conquered = false; //Set to true on Earth if we can see all the map and no enemies
     
     /*
@@ -1101,6 +1111,16 @@ public class Player {
     	for (int i=0; i<unitsInSpace.size(); i++) {
     		Unit unit = unitsInSpace.get(i);
     		mySpaceUnits[unit.unitType().ordinal()]++;
+    	}
+    	
+    	/*
+    	 * If we have seen the enemy starting location remove it from the list as we no longer want to explore it
+    	 */
+    	for (Iterator<MapLocation> iterator = enemyLocs.iterator(); iterator.hasNext();) {
+    	    MapLocation m = iterator.next();
+    	    int x = m.getX(), y = m.getY();
+    	    if (visible[x][y])
+    			iterator.remove();
     	}
     	
     	/*
@@ -1261,7 +1281,7 @@ public class Player {
 	    	}
 		}
 		
-		//Can we Harvest
+		//Can we Harvest - TODO speed this up by checking for known karbonite
 		if (unit.workerHasActed() == 0) {
 			for (Direction d: Direction.values()) {
 				if (gc.canHarvest(id, d)) {
@@ -1275,7 +1295,7 @@ public class Player {
 		
 		//Check to see if we should replicate
     	boolean replicate = (myLandUnits[UnitType.Worker.ordinal()] < maxWorkers);   	
-    	if (myPlanet == Planet.Mars && LastRound - currentRound < 25) //Might as well spend all our karbonite
+    	if (myPlanet == Planet.Mars && LastRound - currentRound < 50) //Might as well spend all our karbonite
     			replicate = true;
     
 		//We can replicate even if we have acted
@@ -1290,9 +1310,8 @@ public class Player {
     }
     
     /***********************************************************************************
-     * Handlers for managing launch times and destinations
-     * We give a rocket 50 turns before it takes off to give units time to get aboard
-     * We head off early if
+     * Handlers for managing launch and destinations
+     * We head off if
      * - we are full
      * - we are partially full and are taking damage
      * - it is turn 749 (Flood next turn)
@@ -1347,8 +1366,11 @@ public class Player {
     
     
     /*
-     * Rockets leave Earth when full or we reach the launch time and then
+     * Rockets leave Earth when full and then
      * unload all their occupants as fast as possible on Mars
+     * 
+     * Ideally we wait for a few rounds once full to give all units inside time to cooldown
+     * and signal that the area around us is dangerous when we take off - TODO
      */
     private static void manageRocket(Unit unit) {
     	if (!unit.unitType().equals(UnitType.Rocket))
