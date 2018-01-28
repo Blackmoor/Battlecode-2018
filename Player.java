@@ -112,7 +112,6 @@ public class Player {
 	    	default:
 	    		break;
 		}
-    	//debug(0, "Processed " + unit.unitType() + " at " + unit.location() + " in " + (System.currentTimeMillis() - now) + " ms");
     }
  
     private static void debug(int level, String s) {
@@ -457,31 +456,53 @@ public class Player {
     }
     
     /*
+     * Sniping
+     * 
      * Take out structures first (they don't move!)
      * then healers
      * then rangers
      * then other units
      * 
-     * If there are no enemies - pick a random passable location that is currently not visible
+     * If there are no enemies - pick a random passable location that is in the explore zone
      */
+    
+    LinkedList<MapLocation> snipeTargets = new LinkedList<MapLocation>();
+    
     private static MapLocation bestSnipeTarget(LinkedList<Unit> enemies) {
-    	Unit best = null;
+    	LinkedList<MapLocation> enemyStructures = new LinkedList<MapLocation>();
+    	LinkedList<MapLocation> enemyHealers = new LinkedList<MapLocation>();
+    	LinkedList<MapLocation> enemyRangers = new LinkedList<MapLocation>();
+    	LinkedList<MapLocation> enemyOthers = new LinkedList<MapLocation>();
+    	LinkedList<MapLocation> enemiesToSnipe = null;
+    	
     	for (Unit u: enemies) {
     		if (u.unitType() == UnitType.Factory || u.unitType() == UnitType.Rocket)
-    			return u.location().mapLocation();
-    		if (best == null || (best.unitType() != UnitType.Healer && u.unitType() == UnitType.Healer))
-    			best = u;
-    		else if (best.unitType() != UnitType.Ranger && u.unitType() == UnitType.Ranger)
-    			best = u;
+    			enemyStructures.add(u.location().mapLocation());
+    		else if (u.location().isOnMap()) {
+    			if (u.unitType() == UnitType.Healer)
+    				enemyHealers.add(u.location().mapLocation());
+	    		else if (u.unitType() == UnitType.Ranger)
+	    			enemyRangers.add(u.location().mapLocation());
+	    		else
+	    			enemyOthers.add(u.location().mapLocation());
+    		}
     	}
     	
-    	if (best != null)
-    		return best.location().mapLocation();
+    	if (enemyStructures.size() > 0)
+    		enemiesToSnipe = enemyStructures;
+    	else if (enemyHealers.size() > 0)
+    		enemiesToSnipe = enemyHealers;
+    	else if (enemyRangers.size() > 0)
+    		enemiesToSnipe = enemyRangers;
+    	else if (enemyOthers.size() > 0)
+    		enemiesToSnipe = enemyOthers;
+    	else
+    		enemiesToSnipe = exploreZone;
     	
     	//No enemies - try a random location just out of sight range
-    	if (exploreZone.size() > 0) {
-    		int r = randomness.nextInt(exploreZone.size());
-    		return exploreZone.get(r);
+    	if (enemiesToSnipe.size() > 0) {
+    		int r = randomness.nextInt(enemiesToSnipe.size());
+    		return enemiesToSnipe.get(r);
     	}
     	
     	return null;
@@ -515,6 +536,7 @@ public class Player {
     private static double[][] rangerMap = null;
     private static double[][] healerMap = null;
     private static double[][] knightMap = null;
+    private static double[][] damagedMap = null; // Used by damaged units - head to a healer
     private static double[][][] allMaps = null;
     
     private static long workerMapLastUpdated = -1;
@@ -619,7 +641,7 @@ public class Player {
      */
     private static void initGravityMaps() {   	 	
 		for (double[][] me:allMaps) {
-			boolean ignoreDanger = (me == knightMap || (me == rangerMap && currentRound % 16 == 0));
+			boolean ignoreDanger = (me == knightMap);
 	    	for (int x=0; x<map.getWidth(); x++) {
 	    		for (int y=0; y<map.getHeight(); y++) {
 		    			me[x][y] = randomness.nextDouble() / 10000.0;
@@ -630,10 +652,18 @@ public class Player {
 		    	}
 	    	}
     	}
+		
+		/*
+		 * The damagedMap is for all units who have lost half their health
+		 */
+    	if (unitsToHeal.size() > 0 && healers.size() > 0)
+    		ripple(damagedMap, healers, 50, null, 1000);
     	
-    	//Add Rockets that are ready to board and have space
-    	//We only broadcast when we have spare units (more combat units than map w+h)
-    	//Or it is near the flood (turn 600 onwards)
+    	/*
+    	 * Add Rockets that are ready to board and have space
+    	 * We only broadcast when we have spare units (more combat units than map w+h)
+    	 * Or it is near the flood (turn 600 onwards)
+    	 */
     	int totalCombatForce = myLandUnits[UnitType.Knight.ordinal()] +
     							myLandUnits[UnitType.Ranger.ordinal()] +
     							myLandUnits[UnitType.Mage.ordinal()];
@@ -819,8 +849,9 @@ public class Player {
     	mageMap = new double[w][h];
     	healerMap = new double[w][h];
     	knightMap = new double[w][h];
-    	workerMap = new double[w][h];       
-        allMaps = new double[][][] { mageMap, rangerMap, workerMap, knightMap, healerMap };
+    	workerMap = new double[w][h]; 
+    	damagedMap = new double[w][h];
+        allMaps = new double[][][] { mageMap, rangerMap, workerMap, knightMap, healerMap, damagedMap };
     	
         /*
          * Create and cache a MapLocation for each location on the map and whether it is passable and has karbonite
@@ -883,7 +914,7 @@ public class Player {
     			if (!enemyZones.contains(zone))
     				separated = true;
         	
-        	debug(0, "Earth has " + earth.zones.size() + " zones, separated = " + separated);
+        	debug(1, "Earth has " + earth.zones.size() + " zones, separated = " + separated);
         	
         	if (separated) {
         		//Get to mars quickly
@@ -926,6 +957,17 @@ public class Player {
 		return result;
 	}
     
+	/*
+	 * Returns the location score from the given gravity map
+	 * If the unit type is a ranger then we ignore the danger component of the score some of the time
+	 */
+	private static double locationScore(double[][] gravityMap, int x, int y, Unit u) {
+		if (u.unitType() == UnitType.Ranger && currentRound % 20 < 3 && danger[x][y] < u.health()) {
+			return gravityMap[x][y] + danger[x][y];
+		}
+		return gravityMap[x][y];
+	}
+	
     /*
      * Given a gravity map we find the highest scoring tile adjacent to us
      * This could be one of our static buildings or an empty tile
@@ -938,9 +980,13 @@ public class Player {
     	if (!t.location().isOnMap())
     		return null;
     	
+    	if (t.health() * 2 < t.maxHealth() && healers.size() > 0 && t.unitType() != UnitType.Healer) //We've lost more than half our health
+    		gravityMap = damagedMap;
+
+    	
     	MapLocation myLoc = t.location().mapLocation();
     	boolean isStructure =  (t.unitType() == UnitType.Factory || t.unitType() == UnitType.Rocket);   	
-    	double bestScore = (move?-100000:gravityMap[myLoc.getX()][myLoc.getY()]);
+    	double bestScore = (move?-100000:locationScore(gravityMap, myLoc.getX(), myLoc.getY(), t));
     	LinkedList<MapLocation> options = null;
     	
     	debug(4, "bestMove from " + myLoc + " current score " + bestScore);
@@ -950,8 +996,9 @@ public class Player {
 			options = allMoveNeighbours(myLoc);
     	for (MapLocation test: options) {
     		Direction d = myLoc.directionTo(test);
-    		if (gravityMap[test.getX()][test.getY()] > bestScore) {
-    			bestScore = gravityMap[test.getX()][test.getY()];
+    		double score = locationScore(gravityMap, test.getX(), test.getY(), t);
+    		if (score > bestScore) {
+    			bestScore = score;
     			best = d;
     		}
     	}
@@ -1008,6 +1055,7 @@ public class Player {
     private static int[] mySpaceUnits = new int[UnitType.values().length]; //Counts of how many units we have indexed by unit type (ordinal)
     private static LinkedList<MapLocation> unitsToBuild = new LinkedList<MapLocation>(); //List of current blueprints that need building
     private static LinkedList<MapLocation> unitsToHeal = new LinkedList<MapLocation>(); //List of units that need healing
+    private static LinkedList<MapLocation> healers = new LinkedList<MapLocation>(); //Location of our healers - we head to here when damaged
     private static LinkedList<Unit> rockets = new LinkedList<Unit>(); //List of rockets (to Load into if on Earth, or unload from on Mars)
     private static LinkedList<Unit> enemies = new LinkedList<Unit>(); //List of all enemy units in sight
     private static int[][] danger; //Array (x,y) of map locations and how much damage a unit would take there
@@ -1028,6 +1076,7 @@ public class Player {
     	Arrays.fill(mySpaceUnits, 0);
     	unitsToBuild.clear();
     	unitsToHeal.clear();
+    	healers.clear();
     	rockets.clear();
     	enemies.clear();
     	exploreZone.clear();
@@ -1068,6 +1117,8 @@ public class Player {
             				myLandUnits[gc.unit(id).unitType().ordinal()]++;
             			}
             		} else {
+                		if (unit.unitType() == UnitType.Healer)
+                			healers.add(unit.location().mapLocation());
             			if (unit.health() < unit.maxHealth())
             				unitsToHeal.add(unit.location().mapLocation());
             		}
