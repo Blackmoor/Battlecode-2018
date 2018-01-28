@@ -10,10 +10,6 @@ import java.util.Random;
 
 import bc.*;
 
-/*
- * TODO
- * Investigate if a gravity map for damaged units makes sense
- */
 public class Player {
 	private static GameController gc;
 	private static Team myTeam; //Red or Blue
@@ -919,10 +915,8 @@ public class Player {
         	if (separated) {
         		//Get to mars quickly
         		gc.queueResearch(UnitType.Rocket);
-        		if (Math.max(gc.startingMap(Planet.Mars).getWidth(), gc.startingMap(Planet.Mars).getHeight()) <= 30 && mars.zones.size() == 1)
-        			strategy = UnitType.Knight;
         	} else if (Math.max(map.getWidth(), map.getHeight()) <= 30) // We are on a small map and connected
-        		strategy = UnitType.Knight;
+        		strategy = UnitType.Mage;
     	}
     }   
 	
@@ -1051,6 +1045,7 @@ public class Player {
     	}
     }
     
+    private static int[] enemyUnits = new int[UnitType.values().length]; //Counts of how many units enemy has indexed by unit type (ordinal)
     private static int[] myLandUnits = new int[UnitType.values().length]; //Counts of how many units we have indexed by unit type (ordinal)
     private static int[] mySpaceUnits = new int[UnitType.values().length]; //Counts of how many units we have indexed by unit type (ordinal)
     private static LinkedList<MapLocation> unitsToBuild = new LinkedList<MapLocation>(); //List of current blueprints that need building
@@ -1072,6 +1067,7 @@ public class Player {
     private static void updateUnits() {
         units.updateCache(); //All the units we can see
         unitsInSpace = gc.unitsInSpace(); //All the units in space
+        Arrays.fill(enemyUnits, 0);
     	Arrays.fill(myLandUnits, 0);
     	Arrays.fill(mySpaceUnits, 0);
     	unitsToBuild.clear();
@@ -1124,6 +1120,8 @@ public class Player {
             		}
             	} else { //enemies
             		enemies.add(unit);
+            		enemyUnits[unit.unitType().ordinal()]++;
+            		
             		switch (unit.unitType()) {
 	            		case Ranger:
 	            			for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), unit.rangerCannotAttackRange(), unit.attackRange())) {
@@ -1151,6 +1149,20 @@ public class Player {
             		}
             	}
             }
+    	}
+    	
+    	/*
+    	 * Adjust our strategy according to enemies seen
+    	 */
+    	if (strategy != UnitType.Ranger) {
+	    	if (currentRound >= 200)
+	    		strategy = UnitType.Ranger;
+	    	else {
+	    		if (strategy == UnitType.Mage && enemyUnits[UnitType.Ranger.ordinal()] > 0) //Rangers beat Mages
+	    			strategy = UnitType.Knight;
+	    		if (strategy == UnitType.Knight && enemyUnits[UnitType.Mage.ordinal()] > 0) //Mages beat Knights
+	    			strategy = UnitType.Ranger;
+	    	}
     	}
     	
     	Collections.sort(rockets, new Comparator<Unit>() {
@@ -1217,22 +1229,6 @@ public class Player {
     	initGravityMaps(); //Gives each a random noise level and includes and danger areas
     	
     	updateBuildPriorities();
-    	
-    	if (debugLevel > 0) {
-	    	String unitInfo = "";
-	    	for (UnitType t: UnitType.values())
-	    		if (myLandUnits[t.ordinal()] > 0)
-	    			unitInfo += t + " = " + myLandUnits[t.ordinal()] + " ";
-	    	if (unitInfo.length() > 0)
-	    		debug(1, "Round " + currentRound + ": On " + myPlanet + ": " + unitInfo);
-	    	
-	    	unitInfo = "";
-	    	for (UnitType t: UnitType.values())
-	    		if (mySpaceUnits[t.ordinal()] > 0)
-	    			unitInfo += t + " = " + mySpaceUnits[t.ordinal()] + " ";
-	    	if (unitInfo.length() > 0)
-	    		debug(1, "Round " + currentRound + ": In space: " + unitInfo);
-    	}
     }
     
     private static void manageWorker(Unit unit) {
@@ -1532,7 +1528,9 @@ public class Player {
 	    		produce = UnitType.Worker;
 	    	else if (myLandUnits[UnitType.Healer.ordinal()] < Math.max(unitsToHeal.size()*2, myLandUnits[strategy.ordinal()] / 8))
 	    		produce = UnitType.Healer;
-	    	else if (currentRound > EvacuationRound)
+	    	else if ((myLandUnits[UnitType.Ranger.ordinal()] + 1)*2 < myLandUnits[UnitType.Mage.ordinal()])
+	    		produce = UnitType.Ranger; //Mages need the vision range of rangers
+	    	else if (currentRound > EvacuationRound && strategy == UnitType.Ranger)
 	    		produce = UnitType.Mage;
 	    	
 	    	if (gc.canProduceRobot(fid, produce)) {
