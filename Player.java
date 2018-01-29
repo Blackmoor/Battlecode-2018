@@ -636,15 +636,17 @@ public class Player {
      * Finally run a special version of ripple for each rocket to call in the required units to each one
      */
     private static void initGravityMaps() {   	 	
-		for (double[][] me:allMaps) {
-			boolean ignoreDanger = (me == knightMap);
-	    	for (int x=0; x<map.getWidth(); x++) {
-	    		for (int y=0; y<map.getHeight(); y++) {
-		    			me[x][y] = randomness.nextDouble() / 10000.0;
-		    			//To ensure we don't build up too many units we ignore the danger zones occasionally
-		    			//and rely on our healers in between	    			
-		    			if (!ignoreDanger)
-		    				me[x][y] -= danger[x][y];
+		
+    	for (int x=0; x<map.getWidth(); x++) {
+    		for (int y=0; y<map.getHeight(); y++) {
+    			double noise = randomness.nextDouble() / 10000.0;
+    			Unit u = units.unitAt(info[x][y].here);
+    			if (u != null && u.team() == myTeam && (u.unitType() == UnitType.Factory))
+    				noise = 0; //Don't randomly walk into factories
+    			for (double[][] me:allMaps) {
+	    			me[x][y] = noise;    			
+	    			if (me != knightMap) //Knights ignore danger zones
+	    				me[x][y] -= danger[x][y];
 		    	}
 	    	}
     	}
@@ -877,9 +879,6 @@ public class Player {
     	debug(1, "We need " + maxWorkers + " workers on " + myPlanet);
     	if (maxWorkers > 8)
         	gc.queueResearch(UnitType.Worker); // Increase harvest amount
-    	
-    	//TODO - analyse asteroids deposits to see if we should send an early rocket to Mars
-    	//This could affect our research order if we want to get there really quickly
     	
     	if (myPlanet == Planet.Earth) {
     		earth = new MapAnalyser(gc, gc.startingMap(Planet.Earth), info);
@@ -1387,8 +1386,6 @@ public class Player {
     /*
      * Pick a random location in the current zone
      * Valid landing sites are removed from the zone once a rocket has taken off
-     * TODO - allow Mars to tell us that a landing site is valid again (if our rocket was destroyed)
-     * TODO - allow Mars to request missiles (empty rockets sent to destroy enemy rockets)
      * TODO - prioritise locations with more neighbours for faster unloading
      */
     private static MapLocation launchDestination() {
