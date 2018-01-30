@@ -129,14 +129,15 @@ public class Player {
 		int capacity = (gc.researchInfo().getLevel(UnitType.Rocket) == 3)?12:8;
 		int rocketsNeeded = ((unitsToTransport+capacity-1) / capacity) - myLandUnits[UnitType.Rocket.ordinal()];
 		
-		//We save for rockets in 2 situations
+		//We save for rockets in 3 situations
 		//1. We have rocket tech and need more rockets
 		//2. We don't have rocket tech but have conquered earth
+		//3. We don't have rocket tech but have > 250 units
 		if (gc.researchInfo().getLevel(UnitType.Rocket) > 0)
 			saveForRocket = (myLandUnits[UnitType.Worker.ordinal()] > 0 && rocketsNeeded > 0);
 		else
-			saveForRocket = (myLandUnits[UnitType.Worker.ordinal()] > 0 && conquered && 
-								rocketsNeeded * bc.bcUnitTypeBlueprintCost(UnitType.Rocket) > gc.karbonite());		
+			saveForRocket = (myLandUnits[UnitType.Worker.ordinal()] > 0 && (unitsToTransport > 250 ||
+					conquered)  && rocketsNeeded * bc.bcUnitTypeBlueprintCost(UnitType.Rocket) > gc.karbonite());		
     }
     
     /***************************************************************************************
@@ -465,24 +466,7 @@ public class Player {
     LinkedList<MapLocation> snipeTargets = new LinkedList<MapLocation>();
     
     private static MapLocation bestSnipeTarget(LinkedList<Unit> enemies) {
-    	LinkedList<MapLocation> enemyStructures = new LinkedList<MapLocation>();
-    	LinkedList<MapLocation> enemyHealers = new LinkedList<MapLocation>();
-    	LinkedList<MapLocation> enemyRangers = new LinkedList<MapLocation>();
-    	LinkedList<MapLocation> enemyOthers = new LinkedList<MapLocation>();
-    	LinkedList<MapLocation> enemiesToSnipe = null;
-    	
-    	for (Unit u: enemies) {
-    		if (u.unitType() == UnitType.Factory || u.unitType() == UnitType.Rocket)
-    			enemyStructures.add(u.location().mapLocation());
-    		else if (u.location().isOnMap()) {
-    			if (u.unitType() == UnitType.Healer)
-    				enemyHealers.add(u.location().mapLocation());
-	    		else if (u.unitType() == UnitType.Ranger)
-	    			enemyRangers.add(u.location().mapLocation());
-	    		else
-	    			enemyOthers.add(u.location().mapLocation());
-    		}
-    	}
+    	LinkedList<MapLocation> enemiesToSnipe = exploreZone;
     	
     	if (enemyStructures.size() > 0)
     		enemiesToSnipe = enemyStructures;
@@ -492,10 +476,7 @@ public class Player {
     		enemiesToSnipe = enemyRangers;
     	else if (enemyOthers.size() > 0)
     		enemiesToSnipe = enemyOthers;
-    	else
-    		enemiesToSnipe = exploreZone;
-    	
-    	//No enemies - try a random location just out of sight range
+    	  	
     	if (enemiesToSnipe.size() > 0) {
     		int r = randomness.nextInt(enemiesToSnipe.size());
     		return enemiesToSnipe.get(r);
@@ -875,7 +856,9 @@ public class Player {
     		}
     	}
     	
-    	maxWorkers = Math.max(8, turnsToMine / 100); //We always want 8 for building rockets and factories
+    	int minWorkers = (turnsToMine == 0?4:8);
+    	maxWorkers = Math.max(minWorkers, turnsToMine / 100);
+    	
     	debug(1, "We need " + maxWorkers + " workers on " + myPlanet);
     	if (maxWorkers > 8)
         	gc.queueResearch(UnitType.Worker); // Increase harvest amount
@@ -1052,6 +1035,10 @@ public class Player {
     private static LinkedList<MapLocation> healers = new LinkedList<MapLocation>(); //Location of our healers - we head to here when damaged
     private static LinkedList<Unit> rockets = new LinkedList<Unit>(); //List of rockets (to Load into if on Earth, or unload from on Mars)
     private static LinkedList<Unit> enemies = new LinkedList<Unit>(); //List of all enemy units in sight
+    private static LinkedList<MapLocation> enemyStructures = new LinkedList<MapLocation>();
+    private static LinkedList<MapLocation> enemyHealers = new LinkedList<MapLocation>();
+    private static LinkedList<MapLocation> enemyRangers = new LinkedList<MapLocation>();
+    private static LinkedList<MapLocation> enemyOthers = new LinkedList<MapLocation>();
     private static int[][] danger; //Array (x,y) of map locations and how much damage a unit would take there
     private static boolean[][] visible; //Array (x,y) of map locations: true we can see (sense) it
     private static boolean saveForRocket = false;
@@ -1074,6 +1061,10 @@ public class Player {
     	healers.clear();
     	rockets.clear();
     	enemies.clear();
+    	enemyStructures.clear();
+    	enemyHealers.clear();
+    	enemyRangers.clear();
+    	enemyOthers.clear();
     	exploreZone.clear();
     	danger = new int[(int) map.getWidth()][(int) map.getHeight()];
     	visible = new boolean[(int) map.getWidth()][(int) map.getHeight()];
@@ -1120,9 +1111,13 @@ public class Player {
             	} else { //enemies
             		enemies.add(unit);
             		enemyUnits[unit.unitType().ordinal()]++;
-            		
+
             		switch (unit.unitType()) {
+	            		case Factory:
+	            			enemyStructures.add(unit.location().mapLocation());
+	            			break;
 	            		case Ranger:
+	            			enemyRangers.add(unit.location().mapLocation());
 	            			for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), unit.rangerCannotAttackRange(), unit.attackRange())) {
 	            				int x = m.getX(), y = m.getY();
 	            				danger[x][y] += unit.damage();	
@@ -1130,12 +1125,14 @@ public class Player {
 	            			break;
 	            		case Knight: //Increase radius to 30 to account for them moving then attacking
 	            		case Mage:
+	            			enemyOthers.add(unit.location().mapLocation());
 	            			for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), -1, Math.max(30, unit.attackRange()))) {
 	            				int x = m.getX(), y = m.getY();
 	            				danger[x][y] += unit.damage();
 	            			}
 	            			break;
 	            		case Rocket: //These damage neighbours when they take off (so only dangerous on Earth)
+	            			enemyStructures.add(unit.location().mapLocation());
 	            			if (myPlanet == Planet.Earth && unit.structureIsBuilt() > 0) { 
 	            				for (MapLocation m:info[unit.location().mapLocation().getX()][unit.location().mapLocation().getY()].passableNeighbours) {
 		            				int x = m.getX(), y = m.getY();
@@ -1143,7 +1140,11 @@ public class Player {
 		            			}
 	            			}
 	            			break;
-	            		default: //Other units cannot attack
+	            		case Healer:
+	            			enemyHealers.add(unit.location().mapLocation());
+	            			break;
+	            		default:
+	            			enemyOthers.add(unit.location().mapLocation());
 	            			break;
             		}
             	}
@@ -1340,7 +1341,9 @@ public class Player {
 		}
 		
 		//Check to see if we should replicate
-    	boolean replicate = (myLandUnits[UnitType.Worker.ordinal()] < maxWorkers);   	
+    	boolean replicate = (!saveForRocket && myLandUnits[UnitType.Worker.ordinal()] < maxWorkers);
+    	if (karboniteLocation.size() == 0 && myLandUnits[UnitType.Factory.ordinal()] == 0)
+    		replicate = false;
     	if (myPlanet == Planet.Mars && LastRound - currentRound < 50) //Might as well spend all our karbonite
     			replicate = true;
     
@@ -1513,10 +1516,7 @@ public class Player {
 	    	/*
 	    	 * Produce units
 	    	 * 
-	    	 * Our default is rangers for combat.
 	    	 * The number of healers we need is determined by the state of play.
-	    	 * Against Knights healers aren't as useful as more rangers. Against rangers we want more healers
-	    	 * 
 	    	 * The algorithm is adaptive, i.e. we check to see how many units need healing and create healers accordingly
 	    	 */   		
 	    	UnitType produce = strategy;
@@ -1527,7 +1527,7 @@ public class Player {
 	    		produce = UnitType.Healer;
 	    	else if ((myLandUnits[UnitType.Ranger.ordinal()] + 1)*2 < myLandUnits[UnitType.Mage.ordinal()])
 	    		produce = UnitType.Ranger; //Mages need the vision range of rangers
-	    	else if (currentRound > EvacuationRound && strategy == UnitType.Ranger)
+	    	else if (currentRound > EvacuationRound)
 	    		produce = UnitType.Mage;
 	    	
 	    	if (gc.canProduceRobot(fid, produce)) {
