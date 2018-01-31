@@ -57,7 +57,7 @@ public class Player {
         	try {
         		long now = System.currentTimeMillis();
         		currentRound = gc.round();
-        		debug(0, "Time left at start of round " + currentRound + " = " + gc.getTimeLeftMs());
+        		debug(1, "Time left at start of round " + currentRound + " = " + gc.getTimeLeftMs());
        
         		if (gc.getTimeLeftMs() > 500) {	        		
 		            updateUnits();
@@ -72,7 +72,7 @@ public class Player {
 		            }
         		}   
 	            
-        		debug(0, "Round " + currentRound + " took " + (System.currentTimeMillis() - now) + " ms");
+        		debug(1, "Round " + currentRound + " took " + (System.currentTimeMillis() - now) + " ms");
         	} catch (Exception e) {
         		//Ignore
         		debug(0, "Caught exception " + e);
@@ -477,7 +477,7 @@ public class Player {
     private static Unit attackWeakest(Unit unit) {
     	int id = unit.id();
     	
-		if (!unit.location().isOnMap() || !gc.isAttackReady(id) || currentRound % 2 == 0)
+		if (!unit.location().isOnMap() || !gc.isAttackReady(id))
 			return unit;
 		
 		//Pick the enemy with the highest priority and most damage that is in range
@@ -1228,17 +1228,15 @@ public class Player {
     	/*
     	 * Adjust our strategy according to enemies seen
     	 */
-    	if (strategy != UnitType.Ranger) {
-    		if (currentRound >= EvacuationRound)
-    			strategy = UnitType.Mage;
-    		else if (currentRound >= 200)
-	    		strategy = UnitType.Ranger;
-	    	else {
-	    		if (strategy == UnitType.Mage && enemyUnits[UnitType.Ranger.ordinal()] > 0) //Rangers beat Mages
-	    			strategy = UnitType.Knight;
-	    		if (strategy == UnitType.Knight && enemyUnits[UnitType.Mage.ordinal()] > 0) //Mages beat Knights
-	    			strategy = UnitType.Ranger;
-	    	}
+		if (currentRound >= EvacuationRound)
+			strategy = UnitType.Mage;
+		else if (currentRound >= 150)
+    		strategy = UnitType.Ranger;
+    	else if (strategy != UnitType.Ranger) {
+    		if (strategy == UnitType.Mage && enemyUnits[UnitType.Ranger.ordinal()] > 0) //Rangers beat Mages
+    			strategy = UnitType.Knight;
+    		if (strategy == UnitType.Knight && enemyUnits[UnitType.Mage.ordinal()] > 0) //Mages beat Knights
+    			strategy = UnitType.Ranger;
     	}
     	
     	Collections.sort(rockets, new Comparator<Unit>() {
@@ -1409,7 +1407,7 @@ public class Player {
 			long most = karboniteAt[loc.getX()][loc.getY()];
 			MapLocation best = loc;
 			for (MapLocation h: info[loc.getX()][loc.getY()].neighbours) {
-				if (karboniteAt[h.getX()][h.getY()] > most) {
+				if (visible[h.getX()][h.getY()] && karboniteAt[h.getX()][h.getY()] > most) {
 					most = karboniteAt[h.getX()][h.getY()];
 					best = h;
 				}
@@ -1609,13 +1607,18 @@ public class Player {
 	    	 * 
 	    	 * The number of healers we need is determined by the state of play.
 	    	 * The algorithm is adaptive, i.e. we check to see how many units need healing and create healers accordingly
+	    	 * We have an upper bound equal to the number of our strategy unit and a miniumum of 1/4 of that
 	    	 */   		
 	    	UnitType produce = strategy;
-	    	int healers = 2*Math.min(unitsToHeal.size(), myLandUnits[strategy.ordinal()]); //We default to 2 healers per damaged unit
+	    	int healers = unitsToHeal.size()*2;
+	    	if (healers > myLandUnits[strategy.ordinal()])
+	    		healers = myLandUnits[strategy.ordinal()];
+	    	else if (healers < myLandUnits[strategy.ordinal()] /4)
+	    		healers = myLandUnits[strategy.ordinal()] / 4;
 	    	
 	    	if (myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, myLandUnits[strategy.ordinal()]))
 	    		produce = UnitType.Worker;
-	    	else if (myLandUnits[UnitType.Healer.ordinal()] < Math.max(healers, myLandUnits[strategy.ordinal()] / 8))
+	    	else if (myLandUnits[UnitType.Healer.ordinal()] < healers)
 	    		produce = UnitType.Healer;
 	    	else if ((myLandUnits[UnitType.Ranger.ordinal()] + 1)*2 < myLandUnits[UnitType.Mage.ordinal()])
 	    		produce = UnitType.Ranger; //Mages need the vision range of rangers
