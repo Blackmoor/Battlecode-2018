@@ -25,6 +25,7 @@ public class Player {
     private static int maxWorkers; //How many workers we need to mine the karbonite
     private static Random randomness = new Random(74921);
     private static LinkedList<MapLocation> karboniteLocation = new LinkedList<MapLocation>(); //Initialised with starting values and updated as we sense tiles with new values
+    private static long[][] karboniteAt;
     
     private static UnitType strategy = UnitType.Ranger; //Our primary attacking unit
     private static final long LastRound = 1000;
@@ -894,16 +895,19 @@ public class Player {
         /*
          * Create and cache a MapLocation for each location on the map and whether it is passable and has karbonite
          */
-        for (int x = 0; x<map.getWidth(); x++)
+        karboniteAt = new long[w][h];
+        for (int x = 0; x<map.getWidth(); x++) {
     		for (int y=0; y<map.getHeight(); y++) {
     			MapLocation m = new MapLocation(myPlanet, x, y);
     			info[x][y] = new MapInfo(m, (map.isPassableTerrainAt(m) > 0));
-    			if (map.initialKarboniteAt(m) > 0) {
+    			karboniteAt[x][y] = map.initialKarboniteAt(m);
+    			if (karboniteAt[x][y] > 0) {
     				karboniteLocation.add(m);
-    				turnsToMine += (map.initialKarboniteAt(m) + 2) / 3;
+    				turnsToMine += (karboniteAt[x][y] + 2) / 3;
     			}   
     		}
-    			
+        }
+        
         /*
          * Now store all the neighbours of each location and a subset of that (passable locations) for quick access later
          */
@@ -963,7 +967,7 @@ public class Player {
 	
 	/*
 	 * Find the best location to build
-	 * We want safe open space around us if possible
+	 * We want safe open space around us if possible and not adjacent to other structures
 	 */
 	private static MapLocation bestBuildLocation(MapLocation loc) {
 		LinkedList<MapLocation> options = allOpenNeighbours(loc);
@@ -979,9 +983,14 @@ public class Player {
 	    			//Count the passable neighbours that don't contain a structure
 	    			for (MapLocation m: info[test.getX()][test.getY()].passableNeighbours) {  
 	    				Unit u = units.unitAt(m);
-	    				if (u == null || (u.unitType() != UnitType.Factory && u.unitType() != UnitType.Rocket))
+	    				if (u == null)
+	    					score++;
+	    				else if (u.unitType() == UnitType.Factory || u.unitType() == UnitType.Rocket)
+	    					score--;
+	    				else
 	    					score++;
 	    			}
+	    			//TODO - avoid karbonite - need to cache all current locations in an array to make this quick though
 	    			if (score > bestScore) {
 	    				bestScore = score;
 	    				result = test;
@@ -1025,7 +1034,7 @@ public class Player {
     	LinkedList<MapLocation> options = null;
     	
     	debug(4, "bestMove from " + myLoc + " current score " + bestScore);
-		if (isStructure)
+		if (isStructure) //We are looking to unload from here (as a structure can't move!)
 			options = allOpenNeighbours(myLoc);
 		else
 			options = allMoveNeighbours(myLoc);
@@ -1050,14 +1059,19 @@ public class Player {
     private static void updateKarbonite() {
     	for (Iterator<MapLocation> iterator = karboniteLocation.iterator(); iterator.hasNext();) {
     	    MapLocation m = iterator.next();   	    
-    		if (visible[m.getX()][m.getY()] && gc.karboniteAt(m) == 0)
-    			iterator.remove();
+    		if (visible[m.getX()][m.getY()]) {
+    			long k = gc.karboniteAt(m);
+    			if (k == 0)
+    				iterator.remove();
+    			karboniteAt[m.getX()][m.getY()] = k;			
+    		}
     	}	
     	
     	if (myPlanet == Planet.Mars) {
     		if (gc.asteroidPattern().hasAsteroid(currentRound)) {
     			MapLocation strike = gc.asteroidPattern().asteroid(currentRound).getLocation();
     			karboniteLocation.add(strike);
+    			karboniteAt[strike.getX()][strike.getY()] = gc.asteroidPattern().asteroid(currentRound).getKarbonite();
     		}
     	}
     }
@@ -1324,7 +1338,7 @@ public class Player {
 		 * Now check to see if we want to blueprint a factory or a rocket
 		 */		
     	long k = gc.karbonite(); 	
-    	Direction dir = bestMove(unit, getGravityMap(unit.unitType()), true); //Best place to build
+    	Direction dir = bestMove(unit, getGravityMap(unit.unitType()), true);
     	   
 		if (unit.workerHasActed() == 0 && myPlanet == Planet.Earth &&
 				k >= Math.min(bc.bcUnitTypeBlueprintCost(UnitType.Rocket),
@@ -1387,14 +1401,27 @@ public class Player {
 	    	}
 		}
 		
-		//Can we Harvest - TODO speed this up by checking for known karbonite
+		//Can we Harvest? Pick the location with the most karbonite
 		if (unit.workerHasActed() == 0) {
-			for (Direction d: Direction.values()) {
-				if (gc.canHarvest(id, d)) {
-					gc.harvest(id, d);
-					unit = units.updateUnit(id);
-					debug(2, "worker harvesting");
-					break;
+			long most = karboniteAt[loc.getX()][loc.getY()];
+			MapLocation best = loc;
+			for (MapLocation h: info[loc.getX()][loc.getY()].neighbours) {
+				if (karboniteAt[h.getX()][h.getY()] > most) {
+					most = karboniteAt[h.getX()][h.getY()];
+					best = h;
+				}
+			}
+			
+			if (most > 0) {
+				Direction d = loc.directionTo(best);
+				gc.harvest(id, d);
+				unit = units.updateUnit(id);
+				debug(2, "worker harvesting");
+				karboniteAt[best.getX()][best.getY()] -= unit.workerHarvestAmount();
+				if (karboniteAt[best.getX()][best.getY()] <= 0) {
+					karboniteAt[best.getX()][best.getY()] = 0;
+					//We don't need to remove this location from the KarboniteLocation list here as it is used
+					//at the start of the turn and will be correctly updated next turn
 				}
 			}
 		}
