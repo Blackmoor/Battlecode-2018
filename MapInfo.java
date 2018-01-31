@@ -15,6 +15,7 @@ public class MapInfo {
 	public LinkedList<MapLocation>	within50_10;
 	public LinkedList<MapLocation>	within30;
 	public LinkedList<MapLocation>	within30_8;
+	public LinkedList<MapLocation>	within10;
 	
 	public MapInfo(MapLocation mapLocation, boolean p) {
 		here = mapLocation;

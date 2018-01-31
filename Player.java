@@ -165,6 +165,9 @@ public class Player {
     		if (info[cx][cy].within30 != null)
     			return info[cx][cy].within30;
     	}   		
+    	if (max == 10 && info[cx][cy].within10 != null) {
+    		return info[cx][cy].within10;
+    	}
     	
     	int width = (int) map.getWidth(), height = (int) map.getHeight();
     	
@@ -256,6 +259,8 @@ public class Player {
     		else
     			info[cx][cy].within30 = result;
     	}
+    	if (max == 10)
+    		info[cx][cy].within10 = result;
     	
     	return result;
     }
@@ -1197,10 +1202,16 @@ public class Player {
 	            				danger[x][y] += unit.damage();	
 	            			}
 	            			break;
-	            		case Knight: //Increase radius to 30 to account for them moving then attacking
+	            		case Knight: //Increase radius to 10 to account for them moving then attacking
+	            			enemyOthers.add(unit.location().mapLocation());
+	            			for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), -1, 10)) {
+	            				int x = m.getX(), y = m.getY();
+	            				danger[x][y] += unit.damage();
+	            			}
+	            			break;
 	            		case Mage:
 	            			enemyOthers.add(unit.location().mapLocation());
-	            			for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), -1, Math.max(30, unit.attackRange()))) {
+	            			for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), -1, unit.attackRange())) {
 	            				int x = m.getX(), y = m.getY();
 	            				danger[x][y] += unit.damage();
 	            			}
