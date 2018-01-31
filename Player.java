@@ -543,7 +543,7 @@ public class Player {
     	for (Iterator<MapLocation> iterator = edge.iterator(); iterator.hasNext();) {
     	    MapLocation m = iterator.next();
     	    int x = m.getX(), y = m.getY();
-    	    if (!processed[x][y])
+    	    if (!processed[x][y] && info[x][y].passable)
     	    	processed[x][y] = true;
     	    else
     			iterator.remove();
@@ -561,15 +561,6 @@ public class Player {
     		
         	for (MapLocation me: edge) {
         		int x = me.getX(), y = me.getY();
-    			Unit unit = units.unitAt(me);
-				if (unit != null && unit.team() == myTeam &&
-						(match == null || match == unit.unitType())) {
-					matchCount++;
-					if (distance > 1 && matchCount >= max) { //We have reached the cutoff point
-						debug(3, "Ripple match count met: complete at distance " + distance);
-						return;
-					}
-				}
 
     			//Score this tile
         		if (gravityMap != null)
@@ -579,15 +570,32 @@ public class Player {
 	        			if (m != workerMap || currentRound > 700)
 	        				m[x][y] += gravity;
         		}
+        		
+        		Unit unit = units.unitAt(me);
+        		boolean addNeighbours = true;
+    			
+				if (unit != null && unit.team() == myTeam &&
+						(match == null || match == unit.unitType())) {
+					matchCount++;
+					if (matchCount >= max) { //We have reached the cutoff point
+						debug(3, "Ripple match count met: complete at distance " + distance);
+						return;
+					}
+					if (distance == 1) { //This is a starting tile that is already occupied by the right unit
+						addNeighbours = false;
+					}
+				}  			
 	       		
     			//We add adjacent tiles to the next search if they are traversable
-				for (MapLocation t:info[me.getX()][me.getY()].passableNeighbours) {
-	    			if (!processed[t.getX()][t.getY()]) {
-		    			nextEdge.add(t);
-		    			processed[t.getX()][t.getY()] = true;
-		    			debug(4, "ripple Added " + t);
-	    			}
-	    		}
+        		if (addNeighbours) {
+					for (MapLocation t:info[me.getX()][me.getY()].passableNeighbours) {
+		    			if (!processed[t.getX()][t.getY()]) {
+			    			nextEdge.add(t);
+			    			processed[t.getX()][t.getY()] = true;
+			    			debug(4, "ripple Added " + t);
+		    			}
+		    		}
+        		}
     		}
     		debug(4, "Ripple distance " + distance + " edge size = " + nextEdge.size());
     		
@@ -1690,7 +1698,7 @@ public class Player {
     	}
     	
     	if (gc.isOverchargeReady(unit.id())) {
-    		long mostHeat = 0;
+    		long mostHeat = 90; //No point wasting our ability for a small gain
     		Unit bestTarget = null;
 	    	for (Unit u:senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.abilityRange(), myTeam)) {
 	    		long heat = 0;
