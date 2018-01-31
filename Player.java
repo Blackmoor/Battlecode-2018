@@ -346,12 +346,12 @@ public class Player {
     /*
      * A faster version of the sense routine that uses our cache of units
      */
-    private static LinkedList<Unit> senseNearbyUnitsByTeam(MapLocation centre, long radius, Team team) {
+    private static LinkedList<Unit> senseNearbyUnits(MapLocation centre, long radius, Team team) {
     	LinkedList<Unit> result = new LinkedList<Unit>();
     	
     	for (MapLocation m: allLocationsWithin(centre, -1, radius)) {
     		Unit u = units.unitAt(m);
-    		if (u != null && u.team() == team) {
+    		if (u != null && (team == null || u.team() == team)) {
     			result.add(u);
     		}
     	}
@@ -415,6 +415,57 @@ public class Player {
     }
     
     /*
+     * splashAttack is called by mages to find the best target to attack
+     * For each target we calculate the total damage done to enemy units and our units
+     * We may pick to attack our own unit!
+     */
+    private static Unit splashAttack(Unit unit) {
+    	int id = unit.id();
+    	
+		if (!unit.location().isOnMap() || !gc.isAttackReady(id))
+			return unit;
+		
+    	long mostDamage = 0;
+    	Unit best = null;
+    	LinkedList<Unit> inRange = senseNearbyUnits(unit.location().mapLocation(), unit.attackRange(), otherTeam);
+    	HashSet<Unit> targets = new HashSet<Unit>(); //Unique set of units in splash range
+    	
+    	for (Unit e: inRange) { //Loop over enemy units and add in all units in splash range
+    		targets.addAll(senseNearbyUnits(e.location().mapLocation(), 2, null));
+    	}
+    	
+    	for (Unit centre: targets) {
+    		if (gc.canAttack(id, centre.id())) {
+    			long totalDamage = 0;
+    			for (Unit splashed: senseNearbyUnits(centre.location().mapLocation(), 2, null)) {
+	    			long damage = Math.min(splashed.health(), unit.damage()); //How much damage we will do
+	    			if (splashed.team() == myTeam)
+	    				totalDamage -= damage; //Bad
+	    			else
+	    				totalDamage += damage; //Good
+	    		}
+    			
+    			if (totalDamage > mostDamage) {    				
+	    			best = centre;
+	    			mostDamage = totalDamage;
+    			}
+    		}
+    	}
+
+    	if (best == null)
+    		return unit;
+    	
+		debug(2, "Mage firing on " + best.unitType());
+		gc.attack(unit.id(), best.id());
+		
+		//Update all affected units
+		for (Unit splashed: senseNearbyUnits(best.location().mapLocation(), 2, null))
+			units.updateUnit(splashed.id());
+		
+		return units.updateUnit(id);
+    }
+    
+    /*
      * attackWeakest
      * 
      * Pick the enemy with the most damage
@@ -431,7 +482,7 @@ public class Player {
     	long mostDamage = -1;
     	Unit best = null;
     	
-    	for (Unit enemy: senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.attackRange(), otherTeam)) {
+    	for (Unit enemy: senseNearbyUnits(unit.location().mapLocation(), unit.attackRange(), otherTeam)) {
     		if (gc.canAttack(id, enemy.id())) {
     			int priority = unitPriority(enemy);
     			long damage = enemy.maxHealth() - enemy.health();
@@ -489,7 +540,7 @@ public class Player {
     	int best_id = -1;
     	int mostDamage = -1;
     	
-    	for (Unit enemy: senseNearbyUnitsByTeam(knight.location().mapLocation(), knight.attackRange(), otherTeam)) {
+    	for (Unit enemy: senseNearbyUnits(knight.location().mapLocation(), knight.attackRange(), otherTeam)) {
     		if (enemy.maxHealth() - enemy.health() > mostDamage) {
     			mostDamage = (int)(enemy.maxHealth() - enemy.health());
     			best_id = enemy.id();
@@ -1292,7 +1343,7 @@ public class Player {
 	    	
 	    	if (needSacrifice) {
 	    		Unit suicide = null;
-	    		for (Unit u: senseNearbyUnitsByTeam(loc, 2, myTeam)) {
+	    		for (Unit u: senseNearbyUnits(loc, 2, myTeam)) {
 	    			suicide = u;
 	    			if (u.unitType() != UnitType.Factory)
 	    				break;
@@ -1574,10 +1625,10 @@ public class Player {
     		}
     	}
     	
-    	unit = attackWeakest(unit);	   	  	
+    	unit = splashAttack(unit);	   	  	
         unit = moveUnit(unit);
         if (unit.location().isOnMap())
-    		attackWeakest(unit);
+    		splashAttack(unit);
     }
     
     /*
@@ -1682,7 +1733,7 @@ public class Player {
     		//Pick the unit with the most damage in range
     		long mostDamage = -1;
     		Unit unitToHeal = null;
-	    	for (Unit u: senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.attackRange(), myTeam)) {
+	    	for (Unit u: senseNearbyUnits(unit.location().mapLocation(), unit.attackRange(), myTeam)) {
 	    		long damage = u.maxHealth() - u.health();
 	    		if (damage > mostDamage && gc.canHeal(unit.id(), u.id())) {
 	    			mostDamage = damage;
@@ -1700,7 +1751,7 @@ public class Player {
     	if (gc.isOverchargeReady(unit.id())) {
     		long mostHeat = 90; //No point wasting our ability for a small gain
     		Unit bestTarget = null;
-	    	for (Unit u:senseNearbyUnitsByTeam(unit.location().mapLocation(), unit.abilityRange(), myTeam)) {
+	    	for (Unit u:senseNearbyUnits(unit.location().mapLocation(), unit.abilityRange(), myTeam)) {
 	    		long heat = 0;
 	    		switch (u.unitType()) {
 	    		case Ranger:
