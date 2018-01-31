@@ -471,11 +471,13 @@ public class Player {
      * 
      * Pick the enemy with the most damage
      * Returns true if we attacked, false if we didn't
+     * 
+     * We work best if we coordinate attacks on the same round
      */
     private static Unit attackWeakest(Unit unit) {
     	int id = unit.id();
     	
-		if (!unit.location().isOnMap() || !gc.isAttackReady(id))
+		if (!unit.location().isOnMap() || !gc.isAttackReady(id) || currentRound % 2 == 0)
 			return unit;
 		
 		//Pick the enemy with the highest priority and most damage that is in range
@@ -633,7 +635,7 @@ public class Player {
 						debug(3, "Ripple match count met: complete at distance " + distance);
 						return;
 					}
-					if (distance == 1) { //This is a starting tile that is already occupied by the right unit
+					if (distance == 1 && match != null) { //This is a starting tile that is already occupied by the right unit
 						addNeighbours = false;
 					}
 				}  			
@@ -682,7 +684,7 @@ public class Player {
     		for (int y=0; y<map.getHeight(); y++) {
     			double noise = randomness.nextDouble() / 10000.0;
     			Unit u = units.unitAt(info[x][y].here);
-    			if (u != null && u.team() == myTeam && (u.unitType() == UnitType.Factory))
+    			if (u != null && u.team() == myTeam && u.unitType() == UnitType.Factory)
     				noise = 0; //Don't randomly walk into factories
     			for (double[][] me:allMaps) {
 	    			me[x][y] = noise;    			
@@ -1026,8 +1028,7 @@ public class Player {
     	
     	if (t.health() * 2 < t.maxHealth() && healers.size() > 0 && t.unitType() != UnitType.Healer) //We've lost more than half our health
     		gravityMap = damagedMap;
-
-    	
+  	
     	MapLocation myLoc = t.location().mapLocation();
     	boolean isStructure =  (t.unitType() == UnitType.Factory || t.unitType() == UnitType.Rocket);   	
     	double bestScore = (move?-100000:locationScore(gravityMap, myLoc.getX(), myLoc.getY(), t));
@@ -1087,7 +1088,7 @@ public class Player {
     	
     	if ((conquered || currentRound > 200) && ri.getLevel(UnitType.Rocket) == 0) { //Time for rockets
     		gc.queueResearch(UnitType.Rocket);
-    	} else if (ri.getLevel(strategy) == 0) { //We get the level 1 for our preferred unit first
+    	} else if (ri.getLevel(strategy) == 0 && strategy != UnitType.Knight) { //We get the level 1 for our preferred unit first
     		gc.queueResearch(strategy);
     	} else if (ri.getLevel(UnitType.Healer) < 2) { //We upgrade Healers twice before finishing off our preferred units
     		gc.queueResearch(UnitType.Healer);
@@ -1228,7 +1229,9 @@ public class Player {
     	 * Adjust our strategy according to enemies seen
     	 */
     	if (strategy != UnitType.Ranger) {
-	    	if (currentRound >= 200)
+    		if (currentRound >= EvacuationRound)
+    			strategy = UnitType.Mage;
+    		else if (currentRound >= 200)
 	    		strategy = UnitType.Ranger;
 	    	else {
 	    		if (strategy == UnitType.Mage && enemyUnits[UnitType.Ranger.ordinal()] > 0) //Rangers beat Mages
@@ -1414,14 +1417,16 @@ public class Player {
 			
 			if (most > 0) {
 				Direction d = loc.directionTo(best);
-				gc.harvest(id, d);
-				unit = units.updateUnit(id);
-				debug(2, "worker harvesting");
-				karboniteAt[best.getX()][best.getY()] -= unit.workerHarvestAmount();
-				if (karboniteAt[best.getX()][best.getY()] <= 0) {
-					karboniteAt[best.getX()][best.getY()] = 0;
-					//We don't need to remove this location from the KarboniteLocation list here as it is used
-					//at the start of the turn and will be correctly updated next turn
+				if (gc.canHarvest(id, d)) {
+					gc.harvest(id, d);
+					unit = units.updateUnit(id);
+					debug(2, "worker harvesting");
+					karboniteAt[best.getX()][best.getY()] -= unit.workerHarvestAmount();
+					if (karboniteAt[best.getX()][best.getY()] <= 0) {
+						karboniteAt[best.getX()][best.getY()] = 0;
+						//We don't need to remove this location from the KarboniteLocation list here as it is used
+						//at the start of the turn and will be correctly updated next turn
+					}
 				}
 			}
 		}
@@ -1606,15 +1611,14 @@ public class Player {
 	    	 * The algorithm is adaptive, i.e. we check to see how many units need healing and create healers accordingly
 	    	 */   		
 	    	UnitType produce = strategy;
+	    	int healers = 2*Math.min(unitsToHeal.size(), myLandUnits[strategy.ordinal()]); //We default to 2 healers per damaged unit
 	    	
 	    	if (myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, myLandUnits[strategy.ordinal()]))
 	    		produce = UnitType.Worker;
-	    	else if (myLandUnits[UnitType.Healer.ordinal()] < Math.max(unitsToHeal.size()*2, myLandUnits[strategy.ordinal()] / 8))
+	    	else if (myLandUnits[UnitType.Healer.ordinal()] < Math.max(healers, myLandUnits[strategy.ordinal()] / 8))
 	    		produce = UnitType.Healer;
 	    	else if ((myLandUnits[UnitType.Ranger.ordinal()] + 1)*2 < myLandUnits[UnitType.Mage.ordinal()])
 	    		produce = UnitType.Ranger; //Mages need the vision range of rangers
-	    	else if (currentRound > EvacuationRound)
-	    		produce = UnitType.Mage;
 	    	
 	    	if (gc.canProduceRobot(fid, produce)) {
 				gc.produceRobot(fid, produce);
