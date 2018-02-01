@@ -809,6 +809,12 @@ public class Player {
     	
     	//Add damaged units
     	ripple(healerMap, unitsToHeal, 100, UnitType.Healer, healerCount);
+    	
+    	//Avoid all enemies
+    	LinkedList<MapLocation> targets = new LinkedList<MapLocation>();
+    	for (Unit u:enemies)
+    		targets.add(u.location().mapLocation()); 
+    	ripple(healerMap, targets, -10, UnitType.Healer, healerCount);
     }
     
     private static void updateKnightMap() {
@@ -983,8 +989,7 @@ public class Player {
 		
 		if (!options.isEmpty()) {
 			//Score each option.
-			int bestScore = 3; //We don't want anything with 3 or less open neighbours
-			
+			int bestScore = (400 - Math.max(400, (int)gc.karbonite())) / 50; //We want lots of open neighbours but override this if we have lots of karbonite			
 	    	for (MapLocation test: options) {      		
 	    		if (danger[test.getX()][test.getY()] == 0) {
 	    			int score = 0;
@@ -998,7 +1003,9 @@ public class Player {
 	    				else
 	    					score++;
 	    			}
-	    			//TODO - avoid karbonite - need to cache all current locations in an array to make this quick though
+	    			if (karboniteAt[test.getX()][test.getY()] > 0)
+	    				score--;
+	    			
 	    			if (score > bestScore) {
 	    				bestScore = score;
 	    				result = test;
@@ -1207,10 +1214,14 @@ public class Player {
 	            			enemyOthers.add(unit.location().mapLocation());
 	            			for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), -1, 10)) {
 	            				int x = m.getX(), y = m.getY();
-	            				danger[x][y] += unit.damage();
+	            				danger[x][y] += unit.damage()/2;
+	            			}
+	            			for (MapLocation m:info[unit.location().mapLocation().getX()][unit.location().mapLocation().getY()].passableNeighbours) {
+	            				int x = m.getX(), y = m.getY();
+	            				danger[x][y] += unit.damage()/2;
 	            			}
 	            			break;
-	            		case Mage:
+	            		case Mage: //TODO - Increase radius to account for splash damage
 	            			enemyOthers.add(unit.location().mapLocation());
 	            			for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), -1, unit.attackRange())) {
 	            				int x = m.getX(), y = m.getY();
@@ -1477,14 +1488,23 @@ public class Player {
      */
     private static void nextZone() {
     	//Send next rocket to next zone with room
-		boolean found = false;
 		int startZone = marsZone;
-		while (!found) {
+		do {
 	    	marsZone++;
 	    	if (marsZone >= mars.zones.size())
 	    		marsZone = 0;
-	    	found = (marsZone == startZone || mars.zones.get(marsZone).landingSites.size() > 1);
-		}
+	    	if (mars.zones.get(marsZone).landingSites.size() > 1)
+	    		return; //We found a zone with room
+		} while (marsZone != startZone);
+		
+		//Try again but allow zones of size 1
+		do {
+	    	marsZone++;
+	    	if (marsZone >= mars.zones.size())
+	    		marsZone = 0;
+	    	if (mars.zones.get(marsZone).landingSites.size() > 0)
+	    		return; //We found a zone with room
+		} while (marsZone != startZone);
 	}
 	
     /*
@@ -1613,34 +1633,33 @@ public class Player {
 			unit = units.updateUnit(unit.id()); //Update garrison info
     	}
     	
-    	if (!saveForRocket) {
-	    	/*
-	    	 * Produce units
-	    	 * 
-	    	 * The number of healers we need is determined by the state of play.
-	    	 * The algorithm is adaptive, i.e. we check to see how many units need healing and create healers accordingly
-	    	 * We have an upper bound equal to the number of our strategy unit and a miniumum of 1/4 of that
-	    	 */   		
-	    	UnitType produce = strategy;
-	    	int combatUnits = myLandUnits[UnitType.Ranger.ordinal()] + myLandUnits[UnitType.Mage.ordinal()] + myLandUnits[UnitType.Knight.ordinal()];
-	    	int healers = unitsToHeal.size()*2;
-	    	if (healers > combatUnits / 2)
-	    		healers = combatUnits / 2;
-	    	else if (healers < combatUnits / 4)
-	    		healers = combatUnits / 4;
-	    	
-	    	if (myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, myLandUnits[strategy.ordinal()]))
-	    		produce = UnitType.Worker;
-	    	else if (myLandUnits[UnitType.Healer.ordinal()] < healers)
-	    		produce = UnitType.Healer;
-	    	else if ((myLandUnits[UnitType.Ranger.ordinal()] + 1)*2 < myLandUnits[UnitType.Mage.ordinal()])
-	    		produce = UnitType.Ranger; //Mages need the vision range of rangers
-	    	
-	    	if (gc.canProduceRobot(fid, produce)) {
-				gc.produceRobot(fid, produce);
-				debug(2, "Factory starts producing a " + produce);
-			}
-    	}
+    	/*
+    	 * Produce units
+    	 * 
+    	 * The number of healers we need is determined by the state of play.
+    	 * The algorithm is adaptive, i.e. we check to see how many units need healing and create healers accordingly
+    	 * We have an upper bound equal to the number of our strategy unit and a miniumum of 1/4 of that
+    	 */   		
+    	UnitType produce = strategy;
+    	int combatUnits = myLandUnits[UnitType.Ranger.ordinal()] + myLandUnits[UnitType.Mage.ordinal()] + myLandUnits[UnitType.Knight.ordinal()];
+    	int healers = unitsToHeal.size()*2;
+    	if (healers > combatUnits / 2)
+    		healers = combatUnits / 2;
+    	else if (healers < combatUnits / 4)
+    		healers = combatUnits / 4;
+    	
+    	if (myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, combatUnits))
+    		produce = UnitType.Worker;
+    	else if (myLandUnits[UnitType.Healer.ordinal()] < healers)
+    		produce = UnitType.Healer;
+    	else if ((myLandUnits[UnitType.Ranger.ordinal()] + 1)*2 < myLandUnits[UnitType.Mage.ordinal()])
+    		produce = UnitType.Ranger; //Mages need the vision range of rangers
+    	
+    	if ((!saveForRocket || produce == UnitType.Worker) && gc.canProduceRobot(fid, produce)) {
+			gc.produceRobot(fid, produce);
+			debug(2, "Factory starts producing a " + produce);
+		}
+
     	unit = units.updateUnit(fid); //Update garrison info
     }
     
