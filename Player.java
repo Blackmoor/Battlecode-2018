@@ -930,10 +930,11 @@ public class Player {
     	maxWorkers = Math.max(minWorkers, turnsToMine / 100);
     	
     	debug(1, "We need " + maxWorkers + " workers on " + myPlanet);
-    	if (maxWorkers > 8)
-        	gc.queueResearch(UnitType.Worker); // Increase harvest amount
-    	
+
     	if (myPlanet == Planet.Earth) {
+        	if (maxWorkers > 8)
+            	gc.queueResearch(UnitType.Worker); // Increase harvest amount
+        	
     		earth = new MapAnalyser(gc, gc.startingMap(Planet.Earth), info);
     		mars = new MapAnalyser(gc, gc.startingMap(Planet.Mars), null);
    		
@@ -1088,7 +1089,7 @@ public class Player {
     private static void updateResearch() {
     	ResearchInfo ri = gc.researchInfo();
     	
-    	if (ri.hasNextInQueue())
+    	if (myPlanet != Planet.Earth || ri.hasNextInQueue())
     		return;
     	
     	if ((conquered || currentRound > 200) && ri.getLevel(UnitType.Rocket) == 0) { //Time for rockets
@@ -1621,11 +1622,12 @@ public class Player {
 	    	 * We have an upper bound equal to the number of our strategy unit and a miniumum of 1/4 of that
 	    	 */   		
 	    	UnitType produce = strategy;
+	    	int combatUnits = myLandUnits[UnitType.Ranger.ordinal()] + myLandUnits[UnitType.Mage.ordinal()] + myLandUnits[UnitType.Knight.ordinal()];
 	    	int healers = unitsToHeal.size()*2;
-	    	if (healers > myLandUnits[strategy.ordinal()])
-	    		healers = myLandUnits[strategy.ordinal()];
-	    	else if (healers < myLandUnits[strategy.ordinal()] /4)
-	    		healers = myLandUnits[strategy.ordinal()] / 4;
+	    	if (healers > combatUnits / 2)
+	    		healers = combatUnits / 2;
+	    	else if (healers < combatUnits / 4)
+	    		healers = combatUnits / 4;
 	    	
 	    	if (myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, myLandUnits[strategy.ordinal()]))
 	    		produce = UnitType.Worker;
