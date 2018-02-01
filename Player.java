@@ -24,9 +24,8 @@ public class Player {
     private static VecUnit unitsInSpace; //The list of all units on the way to mars
     private static int maxWorkers; //How many workers we need to mine the karbonite
     private static Random randomness = new Random(74921);
-    private static LinkedList<MapLocation> karboniteLocation = new LinkedList<MapLocation>(); //Initialised with starting values and updated as we sense tiles with new values
-    private static long[][] karboniteAt;
-    
+    private static Karbonite karbonite;
+ 
     private static UnitType strategy = UnitType.Ranger; //Our primary attacking unit
     private static final long LastRound = 1000;
     private static final long EvacuationRound = 600;
@@ -61,7 +60,7 @@ public class Player {
        
         		if (gc.getTimeLeftMs() > 500) {	        		
 		            updateUnits();
-		            updateKarbonite();
+		            karbonite.update(visible);
 		            updateResearch();
 		            
 		            VecUnit known = units.allUnits();
@@ -141,173 +140,6 @@ public class Player {
 					conquered)  && rocketsNeeded * bc.bcUnitTypeBlueprintCost(UnitType.Rocket) > gc.karbonite());		
     }
     
-    /***************************************************************************************
-     * Utility functions
-     * These are sometimes local versions of the gc routines that perform better
-     ***************************************************************************************/
-    private static LinkedList<MapLocation> allLocationsWithin(MapLocation centre, long min, long max) {
-    	LinkedList<MapLocation> result = new LinkedList<MapLocation>();
-    	int cx = centre.getX(), cy = centre.getY();
-    	
-    	if (max == 100 && info[cx][cy].within100 != null)
-    		return info[cx][cy].within100;
-    	if (max == 70 && info[cx][cy].within70 != null)
-    		return info[cx][cy].within70;
-    	if (max == 50) {
-    		if (min == 10 && info[cx][cy].within50_10 != null)
-    			return info[cx][cy].within50_10;
-    		if (info[cx][cy].within50 != null)
-    			return info[cx][cy].within50;
-    	}
-    	if (max == 30) {
-    		if (min == 8 && info[cx][cy].within30_8 != null)
-    			return info[cx][cy].within30_8;
-    		if (info[cx][cy].within30 != null)
-    			return info[cx][cy].within30;
-    	}   		
-    	if (max == 10 && info[cx][cy].within10 != null) {
-    		return info[cx][cy].within10;
-    	}
-    	
-    	int width = (int) map.getWidth(), height = (int) map.getHeight();
-    	
-    	if (min < 0)
-    		result.add(centre);
-    	
-    	//The tiles in the resultant circle will be 4 way symmetric along the diagonals and vertices
-    	//and 8 way symmetric in other areas
-
-    	//First the horizontal/vertical
-    	for (int x=1; x*x<=max; x++) {
-    		if (x*x <= min)
-    			continue;
-    		if (cx+x < width)
-				result.add(info[cx+x][cy].here);
-			if (cy+x < height)
-				result.add(info[cx][cy+x].here);
-			if (cx-x >= 0)
-				result.add(info[cx-x][cy].here);
-			if (cy-x >= 0)
-				result.add(info[cx][cy-x].here);
-    	}
-    	
-    	//Now the diagonals
-    	for (int x=1; 2*x*x<=max; x++) {
-    		if (2*x*x <= min)
-    			continue;
-    		if (cx+x < width) {
-    			if (cy+x < height)
-    				result.add(info[cx+x][cy+x].here);
-    			if (cy-x >= 0)
-    				result.add(info[cx+x][cy-x].here);
-    		}
-			if (cx-x >= 0) {
-				if (cy+x < height)
-					result.add(info[cx-x][cy+x].here);
-				if (cy-x >= 0)
-					result.add(info[cx-x][cy-x].here);
-			}
-    	}
-    	
-    	//Finally the 8 way symmetry
-    	for (int x=2; x*x+1<=max; x++) {
-    		if (x*x+1 <= min)
-    			continue;
-    		for (int y=1; y<x && x*x+y*y<=max; y++) {
-    			if (x*x+y*x<=min)
-    				continue;
-				if (cx+x < width) {
-					if (cy+y < height)
-						result.add(info[cx+x][cy+y].here);
-					if (cy-y >= 0)
-						result.add(info[cx+x][cy-y].here);
-				}
-				if (cx-y >= 0) {
-					if (cy+x < height)
-						result.add(info[cx-y][cy+x].here);
-					if (cy-x >= 0)
-						result.add(info[cx-y][cy-x].here);
-				}
-				if (cx-x >= 0) {
-					if (cy-y >= 0)
-						result.add(info[cx-x][cy-y].here);
-					if (cy+y < height)
-						result.add(info[cx-x][cy+y].here);
-				}
-				if (cx+y < width) {
-					if (cy-x >= 0)
-						result.add(info[cx+y][cy-x].here);				
-					if (cy+x < height)
-						result.add(info[cx+y][cy+x].here);
-				}
-    		}
-    	}
-    	
-    	if (max == 100)
-    		info[cx][cy].within100 = result;
-    	if (max == 70)
-    		info[cx][cy].within70 = result;
-    	if (max == 50) {
-    		if (min == 10)
-    			info[cx][cy].within50_10 = result;
-    		else
-    			info[cx][cy].within50 = result;
-    	}
-    	if (max == 30) {
-    		if (min == 8)
-    			info[cx][cy].within30_8 = result;
-    		else
-    			info[cx][cy].within30 = result;
-    	}
-    	if (max == 10)
-    		info[cx][cy].within10 = result;
-    	
-    	return result;
-    }
-    
-    private static LinkedList<MapLocation> allNeighboursOf(MapLocation centre) {
-    	LinkedList<MapLocation> result = new LinkedList<MapLocation>();
-    	int cx = centre.getX(), cy = centre.getY();
-    	long width = map.getWidth(), height = map.getHeight();
-    	
-    	if (cx > 0) {
-    		result.add(info[cx-1][cy].here);
-    		if (cy > 0)
-    			result.add(info[cx-1][cy-1].here);
-    		if (cy+1 < height)
-    			result.add(info[cx-1][cy+1].here);
-    	}
-    	if (cy > 0)
-			result.add(info[cx][cy-1].here);
-		if (cy+1 < height)
-			result.add(info[cx][cy+1].here);
-		
-		if (cx+1 < width) {
-			result.add(info[cx+1][cy].here);
-    		if (cy > 0)
-    			result.add(info[cx+1][cy-1].here);
-    		if (cy+1 < height)
-    			result.add(info[cx+1][cy+1].here);
-		}
-		return result;
-    }
-    
-    /*
-     * Returns an array containing all the passable neighbours of a map location
-     * Passable means on the map and not water
-     * 
-     * Only called by MapInfo to create and cache the results for each location on the map
-     */
-    private static LinkedList<MapLocation> allPassableNeighbours(MapLocation l) {
-    	LinkedList<MapLocation> result = new LinkedList<MapLocation>();
-    	for (MapLocation test:info[l.getX()][l.getY()].neighbours) {
-    		if (info[test.getX()][test.getY()].passable)
-    			result.add(test);
-		}
-    	
-    	return result;
-    }
-    
     /*
      * Returns true if the unit is ours and a completed factory or rocket
      */
@@ -326,7 +158,7 @@ public class Player {
     private static LinkedList<MapLocation> allOpenNeighbours(MapLocation l) {
     	LinkedList<MapLocation> result = new LinkedList<MapLocation>();
     	
-    	for (MapLocation test:info[l.getX()][l.getY()].passableNeighbours) {
+    	for (MapLocation test:info.passableNeighbours(l)) {
     		if (units.unitAt(test) == null)
 				result.add(test);
 		}
@@ -340,7 +172,7 @@ public class Player {
      */
     private static LinkedList<MapLocation> allMoveNeighbours(MapLocation l) {
     	LinkedList<MapLocation> result = new LinkedList<MapLocation>();
-    	for (MapLocation test:info[l.getX()][l.getY()].passableNeighbours) {
+    	for (MapLocation test:info.passableNeighbours(l)) {
     		Unit u = units.unitAt(test);
 			if (u == null || isOurStructure(u))
 				result.add(test);
@@ -355,7 +187,7 @@ public class Player {
     private static LinkedList<Unit> senseNearbyUnits(MapLocation centre, long radius, Team team) {
     	LinkedList<Unit> result = new LinkedList<Unit>();
     	
-    	for (MapLocation m: allLocationsWithin(centre, -1, radius)) {
+    	for (MapLocation m: info.allLocationsWithin(centre, -1, radius)) {
     		Unit u = units.unitAt(m);
     		if (u != null && (team == null || u.team() == team)) {
     			result.add(u);
@@ -566,7 +398,7 @@ public class Player {
      * We create these maps each turn that a unit needs to move and only as needed
      **************************************************************************************/
     
-    private static MapInfo[][] info = null; //All neighbours of each location
+    private static MapCache info = null;
     private static double[][] workerMap = null;
     private static double[][] mageMap = null;
     private static double[][] rangerMap = null;
@@ -602,7 +434,7 @@ public class Player {
     	for (Iterator<MapLocation> iterator = edge.iterator(); iterator.hasNext();) {
     	    MapLocation m = iterator.next();
     	    int x = m.getX(), y = m.getY();
-    	    if (!processed[x][y] && info[x][y].passable)
+    	    if (!processed[x][y] && info.passable(x, y))
     	    	processed[x][y] = true;
     	    else
     			iterator.remove();
@@ -647,7 +479,7 @@ public class Player {
 	       		
     			//We add adjacent tiles to the next search if they are traversable
         		if (addNeighbours) {
-					for (MapLocation t:info[me.getX()][me.getY()].passableNeighbours) {
+					for (MapLocation t:info.passableNeighbours(me)) {
 		    			if (!processed[t.getX()][t.getY()]) {
 			    			nextEdge.add(t);
 			    			processed[t.getX()][t.getY()] = true;
@@ -673,7 +505,7 @@ public class Player {
     
     public static void ripple(double[][] gravityMap, int x, int y, double points, UnitType match, int max) {
     	LinkedList<MapLocation> edge = new LinkedList<MapLocation>();
-    	edge.add(info[x][y].here);
+    	edge.add(info.loc(x, y));
 
     	ripple(gravityMap, edge, points, match, max);
     }
@@ -688,7 +520,7 @@ public class Player {
     	for (int x=0; x<map.getWidth(); x++) {
     		for (int y=0; y<map.getHeight(); y++) {
     			double noise = randomness.nextDouble() / 10000.0;
-    			Unit u = units.unitAt(info[x][y].here);
+    			Unit u = units.unitAt(info.loc(x, y));
     			if (u != null && u.team() == myTeam && u.unitType() == UnitType.Factory)
     				noise = 0; //Don't randomly walk into factories
     			for (double[][] me:allMaps) {
@@ -767,7 +599,7 @@ public class Player {
     	for (Unit u:enemies) {
     		//We want to be at our attack distance from each enemy
     		MapLocation enemyLoc = u.location().mapLocation();
-    		targets.addAll(allLocationsWithin(enemyLoc, 10, 50));
+    		targets.addAll(info.allLocationsWithin(enemyLoc, 10, 50));
     	}
 
     	ripple(rangerMap, targets, 30, UnitType.Ranger, rangerCount);
@@ -791,7 +623,7 @@ public class Player {
     	for (Unit u:enemies) {
     		//We want to be at our attack distance from each enemy
     		MapLocation enemyLoc = u.location().mapLocation();
-    		targets.addAll(allLocationsWithin(enemyLoc, 8, 30));
+    		targets.addAll(info.allLocationsWithin(enemyLoc, 8, 30));
     	}
     	ripple(mageMap, targets, 30, UnitType.Mage, mageCount);
     }
@@ -850,11 +682,11 @@ public class Player {
 		int workerCount = myLandUnits[UnitType.Worker.ordinal()];
 		
 		//Add Karbonite deposits
-		ripple(workerMap, karboniteLocation, 10, UnitType.Worker, workerCount);
+		ripple(workerMap, karbonite.locations(), 10, UnitType.Worker, workerCount);
 		
 		//Add blueprints and damaged buildings - this is usually a small list so do them individually
 		for (MapLocation m: unitsToBuild) {
-			LinkedList<MapLocation> workSpace = info[m.getX()][m.getY()].passableNeighbours;
+			LinkedList<MapLocation> workSpace = info.passableNeighbours(m);
 			ripple(workerMap, workSpace, 200, UnitType.Worker, Math.min(workerCount, workSpace.size()));
 		}
     }
@@ -893,9 +725,8 @@ public class Player {
      */
 	private static void scanMap() {
     	int w = (int) map.getWidth(), h = (int) map.getHeight();
-    	int turnsToMine = 0; //How many rounds it would take 1 worker to mine (at 3 per turn)
-       
-    	info = new MapInfo[w][h];
+    	
+    	info = new MapCache(gc);
     	
     	rangerMap = new double[w][h];
     	mageMap = new double[w][h];
@@ -905,35 +736,8 @@ public class Player {
     	damagedMap = new double[w][h];
         allMaps = new double[][][] { mageMap, rangerMap, workerMap, knightMap, healerMap, damagedMap };
     	
-        /*
-         * Create and cache a MapLocation for each location on the map and whether it is passable and has karbonite
-         */
-        karboniteAt = new long[w][h];
-        for (int x = 0; x<map.getWidth(); x++) {
-    		for (int y=0; y<map.getHeight(); y++) {
-    			MapLocation m = new MapLocation(myPlanet, x, y);
-    			info[x][y] = new MapInfo(m, (map.isPassableTerrainAt(m) > 0));
-    			karboniteAt[x][y] = map.initialKarboniteAt(m);
-    			if (karboniteAt[x][y] > 0) {
-    				karboniteLocation.add(m);
-    				turnsToMine += (karboniteAt[x][y] + 2) / 3;
-    			}   
-    		}
-        }
-        
-        /*
-         * Now store all the neighbours of each location and a subset of that (passable locations) for quick access later
-         */
-    	for (int x = 0; x<map.getWidth(); x++) {
-    		for (int y=0; y<map.getHeight(); y++) {
-    			MapLocation here = info[x][y].here;
-    			info[x][y].neighbours = allNeighboursOf(here);
-    			info[x][y].passableNeighbours = allPassableNeighbours(here);   						
-    		}
-    	}
-    	
-    	int minWorkers = (turnsToMine == 0?4:8);
-    	maxWorkers = Math.max(minWorkers, turnsToMine / 100);
+        karbonite = new Karbonite(gc, info);
+    	maxWorkers = karbonite.maxWorkers();
     	
     	debug(1, "We need " + maxWorkers + " workers on " + myPlanet);
 
@@ -957,9 +761,9 @@ public class Player {
     			Unit u = start.get(i);
     			MapLocation where = u.location().mapLocation();
     			if (u.team() == myTeam)
-    				myZones.add(info[where.getX()][where.getY()].zone);
+    				myZones.add(info.zone(where));
     			else {
-    				enemyZones.add(info[where.getX()][where.getY()].zone);
+    				enemyZones.add(info.zone(where));
     				enemyLocs.add(where);
     			}
     		}
@@ -994,7 +798,7 @@ public class Player {
 	    		if (danger[test.getX()][test.getY()] == 0) {
 	    			int score = 0;
 	    			//Count the passable neighbours that don't contain a structure
-	    			for (MapLocation m: info[test.getX()][test.getY()].passableNeighbours) {  
+	    			for (MapLocation m: info.passableNeighbours(test)) {  
 	    				Unit u = units.unitAt(m);
 	    				if (u == null)
 	    					score++;
@@ -1003,7 +807,7 @@ public class Player {
 	    				else
 	    					score++;
 	    			}
-	    			if (karboniteAt[test.getX()][test.getY()] > 0)
+	    			if (karbonite.karboniteAt(test) > 0)
 	    				score--;
 	    			
 	    			if (score > bestScore) {
@@ -1062,32 +866,6 @@ public class Player {
     	}
     	debug (4, "is " + best + " with a score of " + bestScore);
 		return best;
-    }
-    
-    /*
-     * updateKarbonite
-     * 
-     * Use current sense data to update any changes to karbonite
-     * If Earth now has no Karbonite we can skip the update as no more will appear
-     */
-    private static void updateKarbonite() {
-    	for (Iterator<MapLocation> iterator = karboniteLocation.iterator(); iterator.hasNext();) {
-    	    MapLocation m = iterator.next();   	    
-    		if (visible[m.getX()][m.getY()]) {
-    			long k = gc.karboniteAt(m);
-    			if (k == 0)
-    				iterator.remove();
-    			karboniteAt[m.getX()][m.getY()] = k;			
-    		}
-    	}	
-    	
-    	if (myPlanet == Planet.Mars) {
-    		if (gc.asteroidPattern().hasAsteroid(currentRound)) {
-    			MapLocation strike = gc.asteroidPattern().asteroid(currentRound).getLocation();
-    			karboniteLocation.add(strike);
-    			karboniteAt[strike.getX()][strike.getY()] = gc.asteroidPattern().asteroid(currentRound).getKarbonite();
-    		}
-    	}
     }
     
     /*
@@ -1168,10 +946,10 @@ public class Player {
             		//Update visibility
             		LinkedList<MapLocation> within = null;           		
             		if (unit.visionRange() == 2) {
-            			within = info[here.getX()][here.getY()].neighbours;
+            			within = info.neighbours(here);
             			visible[here.getX()][here.getY()] = true;
             		} else
-            			within = allLocationsWithin(here, -1, unit.visionRange());
+            			within = info.allLocationsWithin(here, -1, unit.visionRange());
             		for (MapLocation m: within) {
         				int x = m.getX(), y = m.getY();
         				visible[x][y] = true;	
@@ -1205,25 +983,25 @@ public class Player {
 	            			break;
 	            		case Ranger:
 	            			enemyRangers.add(unit.location().mapLocation());
-	            			for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), unit.rangerCannotAttackRange(), unit.attackRange())) {
+	            			for (MapLocation m:info.allLocationsWithin(unit.location().mapLocation(), unit.rangerCannotAttackRange(), unit.attackRange())) {
 	            				int x = m.getX(), y = m.getY();
 	            				danger[x][y] += unit.damage();	
 	            			}
 	            			break;
 	            		case Knight: //Increase radius to 10 to account for them moving then attacking
 	            			enemyOthers.add(unit.location().mapLocation());
-	            			for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), -1, 10)) {
+	            			for (MapLocation m:info.allLocationsWithin(unit.location().mapLocation(), -1, 10)) {
 	            				int x = m.getX(), y = m.getY();
 	            				danger[x][y] += unit.damage()/2;
 	            			}
-	            			for (MapLocation m:info[unit.location().mapLocation().getX()][unit.location().mapLocation().getY()].passableNeighbours) {
+	            			for (MapLocation m:info.passableNeighbours(unit.location().mapLocation())) {
 	            				int x = m.getX(), y = m.getY();
 	            				danger[x][y] += unit.damage()/2;
 	            			}
 	            			break;
 	            		case Mage: //TODO - Increase radius to account for splash damage
 	            			enemyOthers.add(unit.location().mapLocation());
-	            			for (MapLocation m:allLocationsWithin(unit.location().mapLocation(), -1, unit.attackRange())) {
+	            			for (MapLocation m:info.allLocationsWithin(unit.location().mapLocation(), -1, unit.attackRange())) {
 	            				int x = m.getX(), y = m.getY();
 	            				danger[x][y] += unit.damage();
 	            			}
@@ -1231,7 +1009,7 @@ public class Player {
 	            		case Rocket: //These damage neighbours when they take off (so only dangerous on Earth)
 	            			enemyStructures.add(unit.location().mapLocation());
 	            			if (myPlanet == Planet.Earth && unit.structureIsBuilt() > 0) { 
-	            				for (MapLocation m:info[unit.location().mapLocation().getX()][unit.location().mapLocation().getY()].passableNeighbours) {
+	            				for (MapLocation m:info.passableNeighbours(unit.location().mapLocation())) {
 		            				int x = m.getX(), y = m.getY();
 		            				danger[x][y] += 100;
 		            			}
@@ -1291,10 +1069,10 @@ public class Player {
     	if (!conquered && units.allUnits().size() > 0) {
 			for (int x=0; x<map.getWidth(); x++) {
 				for (int y=0; y<map.getHeight(); y++) {  
-					if (!visible[x][y] && info[x][y].passable) { //Unseen - are we adjacent to a visible location
-						for (MapLocation m:info[x][y].passableNeighbours) {
+					if (!visible[x][y] && info.passable(x, y)) { //Unseen - are we adjacent to a visible location
+						for (MapLocation m:info.passableNeighbours(x, y)) {
 							if (visible[m.getX()][m.getY()]) {
-								exploreZone.add(info[x][y].here);
+								exploreZone.add(info.loc(x, y));
 								break;
 							}
 						}
@@ -1317,13 +1095,13 @@ public class Player {
 	    			MapLocation site = landings.get(l).getDestination();
 	    			debug(2, "Clearing area for landing on round " + (currentRound+r) + " at " + site);
 	    			danger[site.getX()][site.getY()] += 100; //TODO find real value from interface
-	    			for (MapLocation m:info[site.getX()][site.getY()].neighbours)
+	    			for (MapLocation m:info.neighbours(site))
 	    				danger[m.getX()][m.getY()] += 100;
 	    		}
     		}
     	}
     	
-    	initGravityMaps(); //Gives each a random noise level and includes and danger areas
+    	initGravityMaps(); //Gives each a random noise level and includes the danger areas
     	
     	updateBuildPriorities();
     }
@@ -1341,7 +1119,7 @@ public class Player {
 		MapLocation loc = unit.location().mapLocation();
 		
 		//Can we help build or repair something
-    	for (MapLocation m:info[loc.getX()][loc.getY()].passableNeighbours) {			
+    	for (MapLocation m:info.passableNeighbours(loc)) {			
 			Unit other = units.unitAt(m);
 			if (other != null && other.team() == myTeam &&
 					(other.unitType() == UnitType.Factory || other.unitType() == UnitType.Rocket)) {
@@ -1427,11 +1205,11 @@ public class Player {
 		
 		//Can we Harvest? Pick the location with the most karbonite
 		if (unit.workerHasActed() == 0) {
-			long most = karboniteAt[loc.getX()][loc.getY()];
+			long most = karbonite.karboniteAt(loc);
 			MapLocation best = loc;
-			for (MapLocation h: info[loc.getX()][loc.getY()].neighbours) {
-				if (visible[h.getX()][h.getY()] && karboniteAt[h.getX()][h.getY()] > most) {
-					most = karboniteAt[h.getX()][h.getY()];
+			for (MapLocation h: info.neighbours(loc)) {
+				if (visible[h.getX()][h.getY()] && karbonite.karboniteAt(h) > most) {
+					most = karbonite.karboniteAt(h);
 					best = h;
 				}
 			}
@@ -1442,22 +1220,20 @@ public class Player {
 					gc.harvest(id, d);
 					unit = units.updateUnit(id);
 					debug(2, "worker harvesting");
-					karboniteAt[best.getX()][best.getY()] -= unit.workerHarvestAmount();
-					if (karboniteAt[best.getX()][best.getY()] <= 0) {
-						karboniteAt[best.getX()][best.getY()] = 0;
-						//We don't need to remove this location from the KarboniteLocation list here as it is used
-						//at the start of the turn and will be correctly updated next turn
-					}
+					karbonite.harvest(best, unit);
 				}
 			}
 		}
 		
 		//Check to see if we should replicate
     	boolean replicate = (!saveForRocket && myLandUnits[UnitType.Worker.ordinal()] < maxWorkers);
-    	if (karboniteLocation.size() == 0 && myLandUnits[UnitType.Factory.ordinal()] == 0)
-    		replicate = false;
-    	if (myPlanet == Planet.Mars && LastRound - currentRound < 50) //Might as well spend all our karbonite
-    			replicate = true;
+    	if (myPlanet == Planet.Earth) {
+    		if (karbonite.locations().size() == 0 && myLandUnits[UnitType.Factory.ordinal()] == 0)
+    			replicate = false; //Save up for a factory
+    	} else {
+	    	if (LastRound - currentRound < 50) //Might as well spend all our karbonite
+	    		replicate = true;
+    	}
     
 		//We can replicate even if we have acted
     	if (dir != null && replicate && gc.canReplicate(id, dir)) {
@@ -1556,7 +1332,7 @@ public class Player {
     			boolean takingDamage = (unit.structureGarrison().size() > 0 && unit.health() < unit.maxHealth());
     			if ((full && arrivalNow <= arrivalNext) || takingDamage || currentRound == FloodTurn) {
     				//Load everyone we can
-    				for (MapLocation m:info[here.getX()][here.getY()].passableNeighbours) {
+    				for (MapLocation m:info.passableNeighbours(here)) {
     					Unit u = units.unitAt(m);
     					if (u != null && gc.canLoad(id, u.id())) {
     						gc.load(id, u.id());
@@ -1676,8 +1452,8 @@ public class Player {
     		updateMageMap();
     		double bestScore = mageMap[here.getX()][here.getY()];
     		MapLocation bestOption = here;
-    		for (MapLocation o:allLocationsWithin(here, -1, unit.abilityRange())) {
-    			if (mageMap[o.getX()][o.getY()] > bestScore && info[o.getX()][o.getY()].passable &&
+    		for (MapLocation o:info.allLocationsWithin(here, -1, unit.abilityRange())) {
+    			if (mageMap[o.getX()][o.getY()] > bestScore && info.passable(o) &&
     					units.unitAt(o) == null) {
     				bestScore = mageMap[o.getX()][o.getY()];
     				bestOption = o;

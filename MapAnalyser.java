@@ -9,7 +9,7 @@ public class MapAnalyser {
 	private PlanetMap			map; //The map being analysed
 	private short[][]			zoneArray; //Indexed by x,y coords - contains the zoneId of the location
 	
-	public MapAnalyser(GameController gc, PlanetMap pm, MapInfo[][] info) {
+	public MapAnalyser(GameController gc, PlanetMap pm, MapCache info) {
 		map = pm;
 		
 		/*
@@ -45,7 +45,7 @@ public class MapAnalyser {
 					zone.landingSites.add(here);
 					zone.karbonite += map.initialKarboniteAt(here);
 					if (info != null)
-						info[x][y].zone = zone.id;
+						info.setZone(x, y, zone.id);
 				}
 			}
 		}
@@ -75,11 +75,11 @@ public class MapAnalyser {
 		return zoneArray[m.getX()][m.getY()];
 	}
 	
-	private MapLocation getLocation(MapInfo[][] m, int x, int y) {
+	private MapLocation getLocation(MapCache m, int x, int y) {
 		if (m == null)
 			return new MapLocation(map.getPlanet(), x, y);
 		
-		return m[x][y].here;
+		return m.loc(x, y);
 	}
 	
 	private void flood(MapLocation start, short[][] zone, short zoneID) {
