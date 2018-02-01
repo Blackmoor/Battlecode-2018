@@ -63,6 +63,9 @@ public class Player {
 		            karbonite.update(visible);
 		            updateResearch();
 		            
+		            //TODO - order the units so we process them in a more efficient order
+		            //Not sure what that order is though!
+		            //Workers before factories
 		            VecUnit known = units.allUnits();
 		            for (int i=0; i<known.size(); i++) {
 		            	Unit u = known.get(i);
@@ -1140,7 +1143,6 @@ public class Player {
 		 * Now check to see if we want to blueprint a factory or a rocket
 		 */		
     	long k = gc.karbonite(); 	
-    	Direction dir = bestMove(unit, getGravityMap(unit.unitType()), true);
     	   
 		if (unit.workerHasActed() == 0 && myPlanet == Planet.Earth &&
 				k >= Math.min(bc.bcUnitTypeBlueprintCost(UnitType.Rocket),
@@ -1154,8 +1156,14 @@ public class Player {
 	    	boolean wantRocket = (saveForRocket && myLandUnits[UnitType.Rocket.ordinal()] == 0 &&
 	    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket));
 	    	boolean wantFactory = (myLandUnits[UnitType.Factory.ordinal()] == 0 &&
-	    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory));	    	
-	    	boolean needSacrifice = (dir == null && (wantRocket || wantFactory));
+	    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory));
+	    	
+	    	int spaces = 0;
+	    	for (MapLocation m: info.passableNeighbours(loc)) {
+	    		if (units.unitAt(m) == null)
+	    			spaces++;
+	    	}
+	    	boolean needSacrifice = (spaces == 0 && (wantRocket || wantFactory));
 	    	
 	    	if (needSacrifice) {
 	    		Unit suicide = null;
@@ -1176,7 +1184,7 @@ public class Player {
 	    		buildLoc = bestBuildLocation(loc);		
 	    	
 	    	if (buildLoc != null) {
-	    		dir = loc.directionTo(buildLoc);
+	    		Direction dir = loc.directionTo(buildLoc);
 				if (saveForRocket &&
 						k >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket) &&
 						gc.canBlueprint(id, UnitType.Rocket, dir)) {
@@ -1187,7 +1195,6 @@ public class Player {
 					myLandUnits[UnitType.Rocket.ordinal()]++;
 					k = gc.karbonite();
 					updateBuildPriorities();
-					dir = bestMove(unit, getGravityMap(unit.unitType()), true); //Update as we might replicate
 				}
 				
 				if (!saveForRocket && k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory) &&
@@ -1198,7 +1205,6 @@ public class Player {
 					debug(2, "worker blueprinting factory");
 					myLandUnits[UnitType.Factory.ordinal()]++;
 					updateBuildPriorities();
-					dir = bestMove(unit, getGravityMap(unit.unitType()), true); //Update as we might replicate
 				}
 	    	}
 		}
@@ -1236,6 +1242,7 @@ public class Player {
     	}
     
 		//We can replicate even if we have acted
+    	Direction dir = bestMove(unit, getGravityMap(unit.unitType()), true);
     	if (dir != null && replicate && gc.canReplicate(id, dir)) {
     		gc.replicate(id, dir);
     		debug(2, "worker replicating");
