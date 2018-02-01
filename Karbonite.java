@@ -73,7 +73,7 @@ public class Karbonite {
     		if (gc.asteroidPattern().hasAsteroid(currentRound)) {
     			MapLocation strike = gc.asteroidPattern().asteroid(currentRound).getLocation();
     			karboniteLocations.add(strike);
-    			karboniteAt[strike.getX()][strike.getY()] = gc.asteroidPattern().asteroid(currentRound).getKarbonite();
+    			karboniteAt[strike.getX()][strike.getY()] += gc.asteroidPattern().asteroid(currentRound).getKarbonite();
     		}
     	}
 	}
