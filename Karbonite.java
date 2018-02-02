@@ -57,10 +57,10 @@ public class Karbonite {
 	/*
 	 * Update all currently known karbonite values
 	 */
-	public void update(boolean visible[][]) {
+	public void update(MapState ms) {
 		for (Iterator<MapLocation> iterator = karboniteLocations.iterator(); iterator.hasNext();) {
     	    MapLocation m = iterator.next();   	    
-    		if (visible[m.getX()][m.getY()]) {
+    		if (ms.visible(m.getX(), m.getY())) {
     			long k = gc.karboniteAt(m);
     			if (k == 0)
     				iterator.remove();

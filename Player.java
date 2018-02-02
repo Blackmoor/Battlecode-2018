@@ -18,6 +18,7 @@ public class Player {
     private static PlanetMap map;	//Initial map 
     private static MapAnalyser mars;
     private static MapAnalyser earth;
+    private static MapState mapState;
     
     private static long currentRound; //Updated each turn
     private static UnitCache units; //The list of all known units - updated each turn in the main loop   
@@ -60,7 +61,7 @@ public class Player {
        
         		if (gc.getTimeLeftMs() > 500) {	        		
 		            updateUnits();
-		            karbonite.update(visible);
+		            karbonite.update(mapState);
 		            updateResearch();
 		            
 		            //TODO - order the units so we process them in a more efficient order
@@ -360,7 +361,7 @@ public class Player {
     LinkedList<MapLocation> snipeTargets = new LinkedList<MapLocation>();
     
     private static MapLocation bestSnipeTarget(LinkedList<Unit> enemies) {
-    	LinkedList<MapLocation> enemiesToSnipe = exploreZone;
+    	LinkedList<MapLocation> enemiesToSnipe = mapState.exploreZone();
     	
     	if (enemyStructures.size() > 0)
     		enemiesToSnipe = enemyStructures;
@@ -424,7 +425,7 @@ public class Player {
      * If called with a null gravity map then we actually add to all gravity maps
      */
     public static void ripple(double[][] gravityMap, LinkedList<MapLocation> edge, double points, UnitType match, int max) {
-    	boolean[][] processed = new boolean[(int)map.getWidth()][(int)map.getHeight()];
+    	boolean[][] open = new boolean[(int)map.getWidth()][(int)map.getHeight()]; //true if in the open list
     	int distance = 0; //How far from the source are we
     	int matchCount = 0; //How many units of the right type have we seen
     	
@@ -437,8 +438,8 @@ public class Player {
     	for (Iterator<MapLocation> iterator = edge.iterator(); iterator.hasNext();) {
     	    MapLocation m = iterator.next();
     	    int x = m.getX(), y = m.getY();
-    	    if (!processed[x][y] && info.passable(x, y))
-    	    	processed[x][y] = true;
+    	    if (!open[x][y] && info.passable(x, y))
+    	    	open[x][y] = true;
     	    else
     			iterator.remove();
     	}
@@ -455,7 +456,7 @@ public class Player {
     		
         	for (MapLocation me: edge) {
         		int x = me.getX(), y = me.getY();
-
+        		boolean addNeighbours = true;  
     			//Score this tile
         		if (gravityMap != null)
         			gravityMap[x][y] += gravity;
@@ -466,8 +467,6 @@ public class Player {
         		}
         		
         		Unit unit = units.unitAt(me);
-        		boolean addNeighbours = true;
-    			
 				if (unit != null && unit.team() == myTeam &&
 						(match == null || match == unit.unitType())) {
 					matchCount++;
@@ -478,14 +477,15 @@ public class Player {
 					if (distance == 1 && match != null) { //This is a starting tile that is already occupied by the right unit
 						addNeighbours = false;
 					}
-				}  			
+				} 
 	       		
     			//We add adjacent tiles to the next search if they are traversable
+				//To avoid pile ups we check to see if a unit is stuck at a location and potentially delay adding in the neighbours
         		if (addNeighbours) {
-					for (MapLocation t:info.passableNeighbours(me)) {
-		    			if (!processed[t.getX()][t.getY()]) {
+        			for (MapLocation t:info.passableNeighbours(me)) {
+		    			if (!open[t.getX()][t.getY()]) {
 			    			nextEdge.add(t);
-			    			processed[t.getX()][t.getY()] = true;
+			    			open[t.getX()][t.getY()] = true;
 			    			debug(4, "ripple Added " + t);
 		    			}
 		    		}
@@ -529,7 +529,7 @@ public class Player {
     			for (double[][] me:allMaps) {
 	    			me[x][y] = noise;    			
 	    			if (me != knightMap) //Knights ignore danger zones
-	    				me[x][y] -= danger[x][y];
+	    				me[x][y] -= mapState.danger(x, y);
 		    	}
 	    	}
     	}
@@ -609,7 +609,7 @@ public class Player {
 
     	//If no enemies - explore
     	if (enemies.size() == 0) {
-    		LinkedList<MapLocation> explore = (currentRound < 200 && enemyLocs.size() > 0)?enemyLocs:exploreZone;
+    		LinkedList<MapLocation> explore = (currentRound < 200 && enemyLocs.size() > 0)?enemyLocs:mapState.exploreZone();
 	    	ripple(rangerMap, explore, 30, UnitType.Ranger, rangerCount);
     	}
     }
@@ -633,7 +633,8 @@ public class Player {
     
     /*
      * Healers need to move towards damaged allies (not structures)
-     * Like all other units they will board waiting rockets
+     * and away from enemies
+     * TODO - stop ripple at a set distance from the enemies
      */
     private static void updateHealerMap() {
     	if (healerMapLastUpdated == currentRound) //We have already done it
@@ -667,7 +668,7 @@ public class Player {
     	
     	//If no enemies - explore
     	if (enemies.size() == 0) {
-    		LinkedList<MapLocation> explore = (currentRound < 200 && enemyLocs.size() > 0)?enemyLocs:exploreZone;
+    		LinkedList<MapLocation> explore = (currentRound < 200 && enemyLocs.size() > 0)?enemyLocs:mapState.exploreZone();
     		ripple(knightMap, explore, 30, UnitType.Knight, knightCount);
     	}
     }
@@ -730,6 +731,7 @@ public class Player {
     	int w = (int) map.getWidth(), h = (int) map.getHeight();
     	
     	info = new MapCache(gc);
+    	mapState = new MapState(gc, info);
     	
     	rangerMap = new double[w][h];
     	mageMap = new double[w][h];
@@ -798,7 +800,7 @@ public class Player {
 			//Score each option.
 			int bestScore = (400 - Math.max(400, (int)gc.karbonite())) / 50; //We want lots of open neighbours but override this if we have lots of karbonite			
 	    	for (MapLocation test: options) {      		
-	    		if (danger[test.getX()][test.getY()] == 0) {
+	    		if (mapState.danger(test.getX(), test.getY()) == 0) {
 	    			int score = 0;
 	    			//Count the passable neighbours that don't contain a structure
 	    			for (MapLocation m: info.passableNeighbours(test)) {  
@@ -828,8 +830,8 @@ public class Player {
 	 * If the unit type is a ranger then we ignore the danger component of the score some of the time
 	 */
 	private static double locationScore(double[][] gravityMap, int x, int y, Unit u) {
-		if (u.unitType() == UnitType.Ranger && currentRound % 20 < 3 && danger[x][y] < u.health()) {
-			return gravityMap[x][y] + danger[x][y];
+		if (u.unitType() == UnitType.Ranger && currentRound % 20 < 3 && mapState.danger(x, y) < u.health()) {
+			return gravityMap[x][y] + mapState.danger(x, y);
 		}
 		return gravityMap[x][y];
 	}
@@ -886,9 +888,9 @@ public class Player {
     		gc.queueResearch(strategy);
     	} else if (ri.getLevel(UnitType.Healer) < 2) { //We upgrade Healers twice before finishing off our preferred units
     		gc.queueResearch(UnitType.Healer);
-    	} else if (ri.getLevel(strategy) < 3) { // Complete our strategy unit
+    	} else if (ri.getLevel(UnitType.Ranger) < 3) { // Build up to sniping
     		gc.queueResearch(strategy);
-    	} else if (ri.getLevel(UnitType.Healer) < 3) { // Overcharge
+    	} else if (ri.getLevel(UnitType.Healer) < 3) { // Overcharge is only useful once we have snipe
     		gc.queueResearch(UnitType.Healer);
     	} else if (ri.getLevel(UnitType.Mage) < 4) {
     		gc.queueResearch(UnitType.Mage);
@@ -907,10 +909,7 @@ public class Player {
     private static LinkedList<MapLocation> enemyHealers = new LinkedList<MapLocation>();
     private static LinkedList<MapLocation> enemyRangers = new LinkedList<MapLocation>();
     private static LinkedList<MapLocation> enemyOthers = new LinkedList<MapLocation>();
-    private static int[][] danger; //Array (x,y) of map locations and how much damage a unit would take there
-    private static boolean[][] visible; //Array (x,y) of map locations: true we can see (sense) it
     private static boolean saveForRocket = false;
-    private static LinkedList<MapLocation> exploreZone = new LinkedList<MapLocation>(); //All locs that are passable and not visible but next to a visible location
     private static LinkedList<MapLocation> enemyLocs = new LinkedList<MapLocation>(); //Start position of the enemy - used in place of the exploreZone at the start of the game
     private static boolean conquered = false; //Set to true on Earth if we can see all the map and no enemies
     
@@ -933,9 +932,8 @@ public class Player {
     	enemyHealers.clear();
     	enemyRangers.clear();
     	enemyOthers.clear();
-    	exploreZone.clear();
-    	danger = new int[(int) map.getWidth()][(int) map.getHeight()];
-    	visible = new boolean[(int) map.getWidth()][(int) map.getHeight()];
+    	mapState.clear();
+    	
     	
     	VecUnit known = units.allUnits();
     	for (int i = 0; i < known.size(); i++) {
@@ -945,18 +943,7 @@ public class Player {
             	if (unit.team() == myTeam) {
             		MapLocation here = unit.location().mapLocation();
             		myLandUnits[unit.unitType().ordinal()]++;
-            		
-            		//Update visibility
-            		LinkedList<MapLocation> within = null;           		
-            		if (unit.visionRange() == 2) {
-            			within = info.neighbours(here);
-            			visible[here.getX()][here.getY()] = true;
-            		} else
-            			within = info.allLocationsWithin(here, -1, unit.visionRange());
-            		for (MapLocation m: within) {
-        				int x = m.getX(), y = m.getY();
-        				visible[x][y] = true;	
-        			}
+    		 		mapState.addVisibility(info.allLocationsWithin(here, -1, unit.visionRange()));
             		
             		if (unit.unitType().equals(UnitType.Factory) || unit.unitType().equals(UnitType.Rocket)) {
             			if (unit.structureIsBuilt() == 0 || unit.health() < unit.maxHealth())
@@ -988,25 +975,25 @@ public class Player {
 	            			enemyRangers.add(unit.location().mapLocation());
 	            			for (MapLocation m:info.allLocationsWithin(unit.location().mapLocation(), unit.rangerCannotAttackRange(), unit.attackRange())) {
 	            				int x = m.getX(), y = m.getY();
-	            				danger[x][y] += unit.damage();	
+	            				mapState.addDanger(x, y, unit.damage());
 	            			}
 	            			break;
 	            		case Knight: //Increase radius to 10 to account for them moving then attacking
 	            			enemyOthers.add(unit.location().mapLocation());
 	            			for (MapLocation m:info.allLocationsWithin(unit.location().mapLocation(), -1, 10)) {
 	            				int x = m.getX(), y = m.getY();
-	            				danger[x][y] += unit.damage()/2;
+	            				mapState.addDanger(x, y, unit.damage()/2);
 	            			}
 	            			for (MapLocation m:info.passableNeighbours(unit.location().mapLocation())) {
 	            				int x = m.getX(), y = m.getY();
-	            				danger[x][y] += unit.damage()/2;
+	            				mapState.addDanger(x, y, unit.damage()/2);
 	            			}
 	            			break;
 	            		case Mage: //TODO - Increase radius to account for splash damage
 	            			enemyOthers.add(unit.location().mapLocation());
 	            			for (MapLocation m:info.allLocationsWithin(unit.location().mapLocation(), -1, unit.attackRange())) {
 	            				int x = m.getX(), y = m.getY();
-	            				danger[x][y] += unit.damage();
+	            				mapState.addDanger(x, y, unit.damage());
 	            			}
 	            			break;
 	            		case Rocket: //These damage neighbours when they take off (so only dangerous on Earth)
@@ -1014,7 +1001,7 @@ public class Player {
 	            			if (myPlanet == Planet.Earth && unit.structureIsBuilt() > 0) { 
 	            				for (MapLocation m:info.passableNeighbours(unit.location().mapLocation())) {
 		            				int x = m.getX(), y = m.getY();
-		            				danger[x][y] += 100;
+		            				mapState.addDanger(x, y, 100);
 		            			}
 	            			}
 	            			break;
@@ -1060,7 +1047,7 @@ public class Player {
     	for (Iterator<MapLocation> iterator = enemyLocs.iterator(); iterator.hasNext();) {
     	    MapLocation m = iterator.next();
     	    int x = m.getX(), y = m.getY();
-    	    if (visible[x][y])
+    	    if (mapState.visible(x, y))
     			iterator.remove();
     	}
     	
@@ -1070,23 +1057,12 @@ public class Player {
     	 * If we have no units this list is empty
     	 */
     	if (!conquered && units.allUnits().size() > 0) {
-			for (int x=0; x<map.getWidth(); x++) {
-				for (int y=0; y<map.getHeight(); y++) {  
-					if (!visible[x][y] && info.passable(x, y)) { //Unseen - are we adjacent to a visible location
-						for (MapLocation m:info.passableNeighbours(x, y)) {
-							if (visible[m.getX()][m.getY()]) {
-								exploreZone.add(info.loc(x, y));
-								break;
-							}
-						}
-					}
-				}
-			}
+			mapState.explore();
     	}
     	
-    	if (!conquered && myPlanet == Planet.Earth && exploreZone.size() == 0 && enemies.size() == 0) {
+    	if (!conquered && myPlanet == Planet.Earth && mapState.exploreZone().size() == 0 && enemies.size() == 0 && units.allUnits().size() > 0) {
     		conquered = true;
-    		debug(0, "Earth is conquered!");
+    		debug(0, "Earth is conquered on round " + currentRound);
     	}
     	
     	//Look for any rockets arriving on Mars in the next 10 turns and mark the tiles
@@ -1097,9 +1073,9 @@ public class Player {
 	    		for (int l=0; l<landings.size(); l++) {
 	    			MapLocation site = landings.get(l).getDestination();
 	    			debug(2, "Clearing area for landing on round " + (currentRound+r) + " at " + site);
-	    			danger[site.getX()][site.getY()] += 100; //TODO find real value from interface
+	    			mapState.addDanger(site.getX(), site.getY(), 100); //TODO find real value from interface
 	    			for (MapLocation m:info.neighbours(site))
-	    				danger[m.getX()][m.getY()] += 100;
+	    				mapState.addDanger(m.getX(), m.getY(), 100);
 	    		}
     		}
     	}
@@ -1214,7 +1190,7 @@ public class Player {
 			long most = karbonite.karboniteAt(loc);
 			MapLocation best = loc;
 			for (MapLocation h: info.neighbours(loc)) {
-				if (visible[h.getX()][h.getY()] && karbonite.karboniteAt(h) > most) {
+				if (mapState.visible(h.getX(), h.getY()) && karbonite.karboniteAt(h) > most) {
 					most = karbonite.karboniteAt(h);
 					best = h;
 				}
@@ -1510,7 +1486,7 @@ public class Player {
     	 */   
     	
     	MapLocation here = unit.location().mapLocation();
-    	boolean inDanger = (danger[here.getX()][here.getY()] > 0);
+    	boolean inDanger = (mapState.danger(here.getX(), here.getY()) > 0);
     	boolean canAttack = gc.isAttackReady(unit.id());
     	boolean attacked = false;
     	boolean sniping = (unit.rangerIsSniping() > 0);

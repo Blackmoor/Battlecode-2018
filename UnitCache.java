@@ -1,15 +1,15 @@
 import bc.*;
 
 /*
- * We are given all our units we are aware of
- * Our units can change position in the turn - enemy units can't but they can be destroyed by damage we inflict
- * If we move then we can potentially see more enemy units but our cache will not reflect that until next turn
+ * We are given all the units we are aware of
+ * Our units can change position during the turn - enemy units can't but they can be destroyed by damage we inflict
+ * We keep the current state and last turns state. If a unit hasn't moved we mark it as stuck.
  */
 public class UnitCache {
 	private GameController	gc;
 	private long			cacheRound; //The round the cache was last updated
 	private VecUnit			known; //List of all units from game controller
-	private Unit[][]		units; //Array (by location x and y) of known units	
+	private Unit[][]		units; //Array (by location x and y) of known units
 	
 	public UnitCache(GameController g) {
 		gc = g;
@@ -42,6 +42,7 @@ public class UnitCache {
 				units[m.getX()][m.getY()] = u;
 			}
 		}
+		
 		cacheRound = gc.round();
 	}
 	
