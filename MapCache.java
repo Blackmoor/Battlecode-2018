@@ -1,3 +1,4 @@
+import java.util.HashMap;
 import java.util.LinkedList;
 
 import bc.*;
@@ -136,25 +137,9 @@ public class MapCache {
     public LinkedList<MapLocation> allLocationsWithin(MapLocation centre, long min, long max) {
     	LinkedList<MapLocation> result = new LinkedList<MapLocation>();
     	int cx = centre.getX(), cy = centre.getY();
-    	
-    	if (max == 100 && map[cx][cy].within100 != null)
-    		return map[cx][cy].within100;
-    	if (max == 70 && map[cx][cy].within70 != null)
-    		return map[cx][cy].within70;
-    	if (max == 50) {
-    		if (min == 10 && map[cx][cy].within50_10 != null)
-    			return map[cx][cy].within50_10;
-    		if (map[cx][cy].within50 != null)
-    			return map[cx][cy].within50;
-    	}
-    	if (max == 30) {
-    		if (min == 8 && map[cx][cy].within30_8 != null)
-    			return map[cx][cy].within30_8;
-    		if (map[cx][cy].within30 != null)
-    			return map[cx][cy].within30;
-    	}   		
-    	if (max == 10 && map[cx][cy].within10 != null) {
-    		return map[cx][cy].within10;
+    	Range r = new Range((int)min, (int)max);
+    	if (map[cx][cy].within.containsKey(r)) {
+    		return map[cx][cy].within.get(r);
     	}
     	
     	if (min < 0)
@@ -229,24 +214,7 @@ public class MapCache {
     		}
     	}
     	
-    	if (max == 100)
-    		map[cx][cy].within100 = result;
-    	if (max == 70)
-    		map[cx][cy].within70 = result;
-    	if (max == 50) {
-    		if (min == 10)
-    			map[cx][cy].within50_10 = result;
-    		else
-    			map[cx][cy].within50 = result;
-    	}
-    	if (max == 30) {
-    		if (min == 8)
-    			map[cx][cy].within30_8 = result;
-    		else
-    			map[cx][cy].within30 = result;
-    	}
-    	if (max == 10)
-    		map[cx][cy].within10 = result;
+    	map[cx][cy].within.put(r, result);
     	
     	return result;
     }
@@ -258,13 +226,7 @@ public class MapCache {
     	
     	public LinkedList<MapLocation>	neighbours;
     	public LinkedList<MapLocation>	passableNeighbours;
-    	public LinkedList<MapLocation>	within100;
-    	public LinkedList<MapLocation>	within70;
-    	public LinkedList<MapLocation>	within50;
-    	public LinkedList<MapLocation>	within50_10;
-    	public LinkedList<MapLocation>	within30;
-    	public LinkedList<MapLocation>	within30_8;
-    	public LinkedList<MapLocation>	within10;
+    	public HashMap<Range, LinkedList<MapLocation>>	within;
     	
     	public MapInfo(MapLocation mapLocation, boolean p) {
     		here = mapLocation;
@@ -272,6 +234,33 @@ public class MapCache {
     		neighbours = null;
     		passableNeighbours = null;
     		zone = 0;
+    		within = new HashMap<Range, LinkedList<MapLocation>>();
+    	}
+    }
+    
+    private class Range {
+    	private int min;
+    	private int max;
+    	
+    	public Range(int a, int b) {
+    		min = a;
+    		max = b;
+    	}
+    	
+    	@Override
+    	public int hashCode() {
+    		return min+max*100; 		
+    	}
+    	
+    	@Override
+    	public boolean equals(Object other) {
+    		if (other == this)
+    			return true;
+    		if (other == null)
+    			return false;
+    		
+    		Range r = (Range)other;
+    		return (r.min == min && r.max == max);
     	}
     }
 }
