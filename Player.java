@@ -123,11 +123,12 @@ public class Player {
 	 * We save up for factories if we have 8 workers but less than 2 factories
 	 */
     private static void updateBuildPriorities() {
-		int unitsToTransport = (myLandUnits[UnitType.Worker.ordinal()] + 
-								myLandUnits[UnitType.Healer.ordinal()]) +
+		int unitsToTransport = (myLandUnits[UnitType.Healer.ordinal()]) +
 								myLandUnits[UnitType.Ranger.ordinal()] +
 								myLandUnits[UnitType.Mage.ordinal()] +
 								myLandUnits[UnitType.Knight.ordinal()];
+		if (currentRound > 700)
+			unitsToTransport += myLandUnits[UnitType.Worker.ordinal()];
 		int capacity = (gc.researchInfo().getLevel(UnitType.Rocket) == 3)?12:8;
 		int rocketsNeeded = ((unitsToTransport+capacity-1) / capacity) - myLandUnits[UnitType.Rocket.ordinal()];
 		
@@ -138,8 +139,9 @@ public class Player {
 		if (gc.researchInfo().getLevel(UnitType.Rocket) > 0)
 			saveForRocket = (myLandUnits[UnitType.Worker.ordinal()] > 0 && rocketsNeeded > 0);
 		else
-			saveForRocket = (myLandUnits[UnitType.Worker.ordinal()] > 0 && (unitsToTransport > 250 ||
-					conquered)  && rocketsNeeded * bc.bcUnitTypeBlueprintCost(UnitType.Rocket) > gc.karbonite());		
+			saveForRocket = (myLandUnits[UnitType.Worker.ordinal()] > 0 &&
+					(unitsToTransport > 250 || conquered) &&
+					rocketsNeeded * bc.bcUnitTypeBlueprintCost(UnitType.Rocket) > gc.karbonite());		
     }
     
     /*
@@ -547,7 +549,7 @@ public class Player {
     							myLandUnits[UnitType.Ranger.ordinal()] +
     							myLandUnits[UnitType.Mage.ordinal()];
     	int desiredUnits = (int)Math.max(map.width(), map.height());
-    	if (conquered)
+    	if (conquered || separated)
     		desiredUnits = 0;
     	int passengers = totalCombatForce - desiredUnits;
     	
@@ -754,7 +756,7 @@ public class Player {
     		 * Work out if we are in the same zone as an opponent
     		 * If not we can build units best suited for mars
     		 */
-    		boolean separated = false; //Set to true if we start in a zone where the enemy isn't
+    		separated = false; //Set to true if we start in a zone where the enemy isn't
     		VecUnit start = gc.startingMap(myPlanet).getInitial_units();
     		HashSet<Integer> myZones = new HashSet<Integer>();
     		HashSet<Integer> enemyZones = new HashSet<Integer>();
@@ -909,6 +911,7 @@ public class Player {
     private static boolean saveForRocket = false;
     private static LinkedList<MapLocation> enemyLocs = new LinkedList<MapLocation>(); //Start position of the enemy - used in place of the exploreZone at the start of the game
     private static boolean conquered = false; //Set to true on Earth if we can see all the map and no enemies
+    private static boolean separated = false; //Set to true if we start off in different zones to the enemy
     
     /*
      * Loop through the units we are aware of and update our cache
@@ -1141,6 +1144,8 @@ public class Player {
 	    	if (needSacrifice) {
 	    		Unit suicide = null;
 	    		for (Unit u: senseNearbyUnits(loc, 2, myTeam)) {
+	    			if (u.id() == unit.id())
+	    				continue; //Don't kill ourself
 	    			suicide = u;
 	    			if (u.unitType() != UnitType.Factory)
 	    				break;
@@ -1210,7 +1215,7 @@ public class Player {
     		if (karbonite.locations().size() == 0 && myLandUnits[UnitType.Factory.ordinal()] == 0)
     			replicate = false; //Save up for a factory
     	} else {
-	    	if (LastRound - currentRound < 50) //Might as well spend all our karbonite
+	    	if (currentRound > EvacuationRound) //Might as well spend all our karbonite
 	    		replicate = true;
     	}
     
