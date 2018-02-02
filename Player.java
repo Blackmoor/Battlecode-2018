@@ -16,7 +16,8 @@ public class Player {
 	private static Team otherTeam;
 	private static Planet myPlanet; //(Earth or Mars)
     private static MapAnalyser mars;
-    private static MapAnalyser earth;
+    private static int zones; //The number of distinct zones on our planet
+    private static ZoneState[] zoneState; //Information on each zone on our planet
     private static MapState mapState;
     
     private static long currentRound; //Updated each turn
@@ -25,8 +26,8 @@ public class Player {
     private static int maxWorkers; //How many workers we need to mine the karbonite
     private static Random randomness = new Random(74921);
     private static Karbonite karbonite;
+    private static boolean conquered = false; //Set to true once we have conquered earth
  
-    private static UnitType strategy = UnitType.Ranger; //Our primary attacking unit
     private static final long LastRound = 1000;
     private static final long EvacuationRound = 600;
     private static final long FloodTurn = 749;
@@ -45,8 +46,7 @@ public class Player {
         myPlanet = gc.planet();
         units = new UnitCache(gc);
         
-    	scanMap();
-        
+    	scanMap();      
         runPlanet();
     }
     
@@ -119,29 +119,41 @@ public class Player {
     
 	/*
 	 * Work out our build priorities
-	 * We aim to have enough rockets for everyone on earth
-	 * We save up for factories if we have 8 workers but less than 2 factories
+	 * We aim to have enough rockets for everyone on earth - each zone is calculated separately
+	 * If any zone needs a rocket then we start saving
 	 */
     private static void updateBuildPriorities() {
-		int unitsToTransport = (myLandUnits[UnitType.Healer.ordinal()]) +
-								myLandUnits[UnitType.Ranger.ordinal()] +
-								myLandUnits[UnitType.Mage.ordinal()] +
-								myLandUnits[UnitType.Knight.ordinal()];
-		if (currentRound > 700)
-			unitsToTransport += myLandUnits[UnitType.Worker.ordinal()];
+    	if (myPlanet != Planet.Earth)
+    		return;
+    	
 		int capacity = (gc.researchInfo().getLevel(UnitType.Rocket) == 3)?12:8;
-		int rocketsNeeded = ((unitsToTransport+capacity-1) / capacity) - myLandUnits[UnitType.Rocket.ordinal()];
+		int totalRocketsNeeded = 0;
 		
-		//We save for rockets in 3 situations
-		//1. We have rocket tech and need more rockets
-		//2. We don't have rocket tech but have conquered earth
-		//3. We don't have rocket tech but have > 250 units
-		if (gc.researchInfo().getLevel(UnitType.Rocket) > 0)
-			saveForRocket = (myLandUnits[UnitType.Worker.ordinal()] > 0 && rocketsNeeded > 0);
-		else
-			saveForRocket = (myLandUnits[UnitType.Worker.ordinal()] > 0 &&
-					(unitsToTransport > 250 || conquered) &&
-					rocketsNeeded * bc.bcUnitTypeBlueprintCost(UnitType.Rocket) > gc.karbonite());		
+    	for (int z=0; z < zones; z++) {
+    		ZoneState zone = zoneState[z];
+			int unitsToTransport = (zone.myLandUnits[UnitType.Healer.ordinal()]) +
+									zone.myLandUnits[UnitType.Ranger.ordinal()] +
+									zone.myLandUnits[UnitType.Mage.ordinal()] +
+									zone.myLandUnits[UnitType.Knight.ordinal()];
+			if (currentRound > 700)
+				unitsToTransport += zone.myLandUnits[UnitType.Worker.ordinal()];
+			int rocketsNeeded = ((unitsToTransport+capacity-1) / capacity) - zone.myLandUnits[UnitType.Rocket.ordinal()];
+			totalRocketsNeeded += rocketsNeeded;
+			
+			//We save for rockets in 3 situations
+			//1. We have rocket tech and need more rockets
+			//2. We don't have rocket tech but have conquered earth
+			//3. We don't have rocket tech but have > 250 units
+			if (gc.researchInfo().getLevel(UnitType.Rocket) > 0)
+				saveForRocket = (zone.myLandUnits[UnitType.Worker.ordinal()] > 0 && rocketsNeeded > 0);
+			else
+				saveForRocket = (zone.myLandUnits[UnitType.Worker.ordinal()] > 0 &&
+						(unitsToTransport > 250 || conquered) &&
+						totalRocketsNeeded * bc.bcUnitTypeBlueprintCost(UnitType.Rocket) > gc.karbonite());
+			
+			if (saveForRocket)
+				return;
+    	}
     }
     
     /*
@@ -540,34 +552,39 @@ public class Player {
     	if (unitsToHeal.size() > 0 && healers.size() > 0)
     		ripple(damagedMap, healers, 50, null, 1000);
     	
+    	if (myPlanet != Planet.Earth) //We process rockets next - nothing to do on Mars
+    		return;
+    	
     	/*
     	 * Add Rockets that are ready to board and have space
-    	 * We only broadcast when we have spare units (more combat units than map w+h)
+    	 * We only broadcast when we have spare units (more combat units than map w and h)
     	 * Or it is near the flood (turn 600 onwards)
     	 */
-    	int totalCombatForce = myLandUnits[UnitType.Knight.ordinal()] +
-    							myLandUnits[UnitType.Ranger.ordinal()] +
-    							myLandUnits[UnitType.Mage.ordinal()];
-    	int desiredUnits = (int)Math.max(map.width(), map.height());
-    	if (conquered || separated)
-    		desiredUnits = 0;
-    	int passengers = totalCombatForce - desiredUnits;
-    	
-    	if (myPlanet == Planet.Earth) {
+
+    	for (int z=0; z<zones; z++) {
+    		ZoneState zone = zoneState[z];
+	    	int totalCombatForce = zone.myLandUnits[UnitType.Knight.ordinal()] +
+	    			zone.myLandUnits[UnitType.Ranger.ordinal()] +
+	    			zone.myLandUnits[UnitType.Mage.ordinal()];
+	    	int desiredUnits = (int)Math.max(map.width(), map.height());
+	    	if (conquered || separated)
+	    		desiredUnits = 0;
+	    	int passengers = totalCombatForce - desiredUnits;
+
 	    	if (conquered || currentRound > EvacuationRound) {
 	    		LinkedList<MapLocation> allRockets = new LinkedList<MapLocation>();
-	    		for (Unit r: rockets)
+	    		for (Unit r: zone.rockets)
 	    			allRockets.add(r.location().mapLocation());
 	    		ripple(null, allRockets, 10000000, null, 1000); //Shout really loudly to all units
 	    	} else if (passengers > 0) {
-	    		for (Unit r: rockets) {
+	    		for (Unit r: zone.rockets) {
 	    			int request = Math.min(passengers,  (int)(r.structureMaxCapacity() - r.structureGarrison().size()));
 	    			ripple(null, r.location().mapLocation(), currentRound*100, null, passengers);
 	    			passengers -= request;
 	    			if (passengers <= 0)
 	    				break;
 	    		}
-			}
+			} 	
     	}
     }
     
@@ -595,8 +612,10 @@ public class Player {
     		return;
     	
     	rangerMapLastUpdated = currentRound;
-    	int rangerCount = myLandUnits[UnitType.Ranger.ordinal()];
-    	
+    	int rangerCount = 0;
+    	for (int z=0; z<zones; z++)
+    		rangerCount += zoneState[z].myLandUnits[UnitType.Ranger.ordinal()];
+	    	
     	//Add enemies
     	LinkedList<MapLocation> targets = new LinkedList<MapLocation>();
     	for (Unit u:enemies) {
@@ -619,8 +638,10 @@ public class Player {
     		return;
     	
     	mageMapLastUpdated = currentRound;
-    	int mageCount = myLandUnits[UnitType.Mage.ordinal()];
-    	
+    	int mageCount = 0;
+    	for (int z=0; z<zones; z++)
+    		mageCount += zoneState[z].myLandUnits[UnitType.Mage.ordinal()];
+	    	
     	//Add enemies
     	LinkedList<MapLocation> targets = new LinkedList<MapLocation>();
     	for (Unit u:enemies) {
@@ -641,8 +662,10 @@ public class Player {
     		return;
     	
     	healerMapLastUpdated = currentRound;
-    	int healerCount = myLandUnits[UnitType.Healer.ordinal()];
-    	
+    	int healerCount = 0;
+    	for (int z=0; z<zones; z++)
+	    	healerCount += zoneState[z].myLandUnits[UnitType.Healer.ordinal()];
+	    	
     	//Add damaged units
     	ripple(healerMap, unitsToHeal, 100, UnitType.Healer, healerCount);
     	
@@ -658,8 +681,10 @@ public class Player {
     		return;
     	
     	knightMapLastUpdated = currentRound;
-    	int knightCount = myLandUnits[UnitType.Knight.ordinal()];
-    	
+    	int knightCount = 0;
+    	for (int z=0; z<zones; z++)
+	    	knightCount += zoneState[z].myLandUnits[UnitType.Knight.ordinal()];
+	    	
     	LinkedList<MapLocation> targets = new LinkedList<MapLocation>();
     	//Add enemies
     	for (Unit u:enemies)
@@ -683,16 +708,20 @@ public class Player {
     		return;
     	
     	workerMapLastUpdated = currentRound;
-		int workerCount = myLandUnits[UnitType.Worker.ordinal()];
-		
+    	int workerCount = 0;
+    	for (int z=0; z<zones; z++) {
+    		ZoneState zone = zoneState[z];
+    		int zoneWorkers = zone.myLandUnits[UnitType.Worker.ordinal()];
+			workerCount += zoneWorkers;
+			//Add blueprints and damaged buildings - this is usually a small list so do them individually
+			for (MapLocation m: zone.unitsToBuild) {
+				LinkedList<MapLocation> workSpace = map.passableNeighbours(m);
+				ripple(workerMap, workSpace, 200, UnitType.Worker, Math.min(zoneWorkers, workSpace.size()));
+			}
+    	}
+    	
 		//Add Karbonite deposits
-		ripple(workerMap, karbonite.locations(), 10, UnitType.Worker, workerCount);
-		
-		//Add blueprints and damaged buildings - this is usually a small list so do them individually
-		for (MapLocation m: unitsToBuild) {
-			LinkedList<MapLocation> workSpace = map.passableNeighbours(m);
-			ripple(workerMap, workSpace, 200, UnitType.Worker, Math.min(workerCount, workSpace.size()));
-		}
+		ripple(workerMap, karbonite.locations(), 10, UnitType.Worker, workerCount);	
     }
     
     private static double[][] getGravityMap(UnitType type) {
@@ -745,13 +774,21 @@ public class Player {
     	
     	debug(1, "We need " + maxWorkers + " workers on " + myPlanet);
 
-    	if (myPlanet == Planet.Earth) {
+        MapAnalyser analysis = new MapAnalyser(gc, gc.startingMap(myPlanet), map); //Split the map into known zones
+    	zones = analysis.zones.size();
+    	
+    	zoneState = new ZoneState[zones];
+    	for (int z=0; z<zones; z++)
+    		zoneState[z] = new ZoneState();
+    	
+    	if (myPlanet == Planet.Mars) {
+    		mars = analysis;
+    	} else { //On earth we process mars to work out landing zones
         	if (maxWorkers > 8)
             	gc.queueResearch(UnitType.Worker); // Increase harvest amount
         	
-    		earth = new MapAnalyser(gc, gc.startingMap(Planet.Earth), map);
     		mars = new MapAnalyser(gc, gc.startingMap(Planet.Mars), null);
-   		
+    	 		
     		/*
     		 * Work out if we are in the same zone as an opponent
     		 * If not we can build units best suited for mars
@@ -777,13 +814,15 @@ public class Player {
     			if (!enemyZones.contains(zone))
     				separated = true;
         	
-        	debug(1, "Earth has " + earth.zones.size() + " zones, separated = " + separated);
+        	debug(1, "Earth has " + zones + " zones, separated = " + separated);
         	
         	if (separated) {
         		//Get to mars quickly
         		gc.queueResearch(UnitType.Rocket);
-        	} else if (Math.max(w, h) <= 30) // We are on a small map and connected
-        		strategy = UnitType.Mage;
+        	} else if (Math.max(w, h) <= 30) { // We are on a small map and connected
+        		for (int z=0; z<zones; z++)
+        			zoneState[z].strategy = UnitType.Mage;
+        	}
     	}
     }   
 	
@@ -881,14 +920,14 @@ public class Player {
     	if (myPlanet != Planet.Earth || ri.hasNextInQueue())
     		return;
     	
-    	if ((conquered || currentRound > 200) && ri.getLevel(UnitType.Rocket) == 0) { //Time for rockets
+    	if (currentRound > 200 && ri.getLevel(UnitType.Rocket) == 0) { //Time for rockets
     		gc.queueResearch(UnitType.Rocket);
-    	} else if (ri.getLevel(strategy) == 0 && strategy != UnitType.Knight) { //We get the level 1 for our preferred unit first
-    		gc.queueResearch(strategy);
+    	} else if (ri.getLevel(zoneState[0].strategy) == 0 && zoneState[0].strategy != UnitType.Knight) { //We get the level 1 for our preferred unit first
+    		gc.queueResearch(zoneState[0].strategy);
     	} else if (ri.getLevel(UnitType.Healer) < 2) { //We upgrade Healers twice before finishing off our preferred units
     		gc.queueResearch(UnitType.Healer);
     	} else if (ri.getLevel(UnitType.Ranger) < 3) { // Build up to sniping
-    		gc.queueResearch(strategy);
+    		gc.queueResearch(zoneState[0].strategy);
     	} else if (ri.getLevel(UnitType.Healer) < 3) { // Overcharge is only useful once we have snipe
     		gc.queueResearch(UnitType.Healer);
     	} else if (ri.getLevel(UnitType.Mage) < 4) {
@@ -896,22 +935,18 @@ public class Player {
     	}
     }
     
-    private static int[] enemyUnits = new int[UnitType.values().length]; //Counts of how many units enemy has indexed by unit type (ordinal)
-    private static int[] myLandUnits = new int[UnitType.values().length]; //Counts of how many units we have indexed by unit type (ordinal)
+
     private static int[] mySpaceUnits = new int[UnitType.values().length]; //Counts of how many units we have indexed by unit type (ordinal)
-    private static LinkedList<MapLocation> unitsToBuild = new LinkedList<MapLocation>(); //List of current blueprints that need building
-    private static LinkedList<MapLocation> unitsToHeal = new LinkedList<MapLocation>(); //List of units that need healing
-    private static LinkedList<MapLocation> healers = new LinkedList<MapLocation>(); //Location of our healers - we head to here when damaged
-    private static LinkedList<Unit> rockets = new LinkedList<Unit>(); //List of rockets (to Load into if on Earth, or unload from on Mars)
+    private static boolean saveForRocket = false;
+    private static LinkedList<MapLocation> enemyLocs = new LinkedList<MapLocation>(); //Start position of the enemy - used in place of the exploreZone at the start of the game
+    private static boolean separated = false; //Set to true if we start off in different zones to the enemy
     private static LinkedList<Unit> enemies = new LinkedList<Unit>(); //List of all enemy units in sight
     private static LinkedList<MapLocation> enemyStructures = new LinkedList<MapLocation>();
     private static LinkedList<MapLocation> enemyHealers = new LinkedList<MapLocation>();
     private static LinkedList<MapLocation> enemyRangers = new LinkedList<MapLocation>();
     private static LinkedList<MapLocation> enemyOthers = new LinkedList<MapLocation>();
-    private static boolean saveForRocket = false;
-    private static LinkedList<MapLocation> enemyLocs = new LinkedList<MapLocation>(); //Start position of the enemy - used in place of the exploreZone at the start of the game
-    private static boolean conquered = false; //Set to true on Earth if we can see all the map and no enemies
-    private static boolean separated = false; //Set to true if we start off in different zones to the enemy
+    private static LinkedList<MapLocation> healers = new LinkedList<MapLocation>();
+    private static LinkedList<MapLocation> unitsToHeal = new LinkedList<MapLocation>(); //List of units that need healing
     
     /*
      * Loop through the units we are aware of and update our cache
@@ -920,42 +955,43 @@ public class Player {
     private static void updateUnits() {
         units.updateCache(); //All the units we can see
         unitsInSpace = gc.unitsInSpace(); //All the units in space
-        Arrays.fill(enemyUnits, 0);
-    	Arrays.fill(myLandUnits, 0);
+        
+        for (int zone=0; zone<zones; zone++)
+        	zoneState[zone].clear();
     	Arrays.fill(mySpaceUnits, 0);
-    	unitsToBuild.clear();
-    	unitsToHeal.clear();
-    	healers.clear();
-    	rockets.clear();
+    	mapState.clear();
+
     	enemies.clear();
     	enemyStructures.clear();
     	enemyHealers.clear();
     	enemyRangers.clear();
     	enemyOthers.clear();
-    	mapState.clear();
-    	
-    	
+    	healers.clear();
+    	unitsToHeal.clear();
+		
     	VecUnit known = units.allUnits();
     	for (int i = 0; i < known.size(); i++) {
             Unit unit = known.get(i);
             
             if (unit.location().isOnMap()) {
+        		MapLocation here = unit.location().mapLocation();
+        		ZoneState zone = zoneState[map.zone(here)];
+        		
             	if (unit.team() == myTeam) {
-            		MapLocation here = unit.location().mapLocation();
-            		myLandUnits[unit.unitType().ordinal()]++;
+            		zone.myLandUnits[unit.unitType().ordinal()]++;
     		 		mapState.addVisibility(map.allLocationsWithin(here, -1, unit.visionRange()));
             		
             		if (unit.unitType().equals(UnitType.Factory) || unit.unitType().equals(UnitType.Rocket)) {
             			if (unit.structureIsBuilt() == 0 || unit.health() < unit.maxHealth())
-            				unitsToBuild.add(here);
+            				zone.unitsToBuild.add(here);
 	
             			if (unit.structureIsBuilt() > 0 && unit.unitType().equals(UnitType.Rocket) && unit.rocketIsUsed() == 0)
-            				rockets.add(unit);
+            				zone.rockets.add(unit);
             			
             			VecUnitID garrison = unit.structureGarrison();
             			for (int j=0; j<garrison.size(); j++) {
             				int id = garrison.get(j);
-            				myLandUnits[gc.unit(id).unitType().ordinal()]++;
+            				zone.myLandUnits[gc.unit(id).unitType().ordinal()]++;
             			}
             		} else {
                 		if (unit.unitType() == UnitType.Healer)
@@ -965,7 +1001,7 @@ public class Player {
             		}
             	} else { //enemies
             		enemies.add(unit);
-            		enemyUnits[unit.unitType().ordinal()]++;
+            		zone.enemyUnits[unit.unitType().ordinal()]++;
 
             		switch (unit.unitType()) {
 	            		case Factory:
@@ -1019,22 +1055,25 @@ public class Player {
     	/*
     	 * Adjust our strategy according to enemies seen
     	 */
-		if (currentRound >= EvacuationRound)
-			strategy = UnitType.Mage;
-		else if (currentRound >= 150)
-    		strategy = UnitType.Ranger;
-    	else if (strategy != UnitType.Ranger) {
-    		if (strategy == UnitType.Mage && enemyUnits[UnitType.Ranger.ordinal()] > 0) //Rangers beat Mages
-    			strategy = UnitType.Knight;
-    		if (strategy == UnitType.Knight && enemyUnits[UnitType.Mage.ordinal()] > 0) //Mages beat Knights
-    			strategy = UnitType.Ranger;
+    	for (int z=0; z<zones; z++) {
+    		ZoneState zone = zoneState[z];
+			if (currentRound >= EvacuationRound)
+				zone.strategy = UnitType.Mage;
+			else if (currentRound >= 150)
+	    		zone.strategy = UnitType.Ranger;
+	    	else if (zone.strategy != UnitType.Ranger) {
+	    		if (zone.strategy == UnitType.Mage && zone.enemyUnits[UnitType.Ranger.ordinal()] > 0) //Rangers beat Mages
+	    			zone.strategy = UnitType.Knight;
+	    		if (zone.strategy == UnitType.Knight && zone.enemyUnits[UnitType.Mage.ordinal()] > 0) //Mages beat Knights
+	    			zone.strategy = UnitType.Ranger;
+	    	}
+			
+			Collections.sort(zone.rockets, new Comparator<Unit>() {
+	    		public int compare(Unit r1, Unit r2) {
+	    			return r1.id() - r2.id();
+	    		}
+	    	});
     	}
-    	
-    	Collections.sort(rockets, new Comparator<Unit>() {
-    		public int compare(Unit r1, Unit r2) {
-    			return r1.id() - r2.id();
-    		}
-    	});
     	
     	for (int i=0; i<unitsInSpace.size(); i++) {
     		Unit unit = unitsInSpace.get(i);
@@ -1096,6 +1135,7 @@ public class Player {
     		return;
         
 		MapLocation loc = unit.location().mapLocation();
+		ZoneState zone = zoneState[map.zone(loc)];
 		
 		//Can we help build or repair something
     	for (MapLocation m:map.passableNeighbours(loc)) {			
@@ -1129,9 +1169,9 @@ public class Player {
 	    	 * Sometimes we block ourselves in due to excessive population (or a small planet)
 	    	 * If we want to build a rocket and we have no rockets then we destroy an adjacent unit and build there!
 	    	 */
-	    	boolean wantRocket = (saveForRocket && myLandUnits[UnitType.Rocket.ordinal()] == 0 &&
+	    	boolean wantRocket = (saveForRocket && zone.myLandUnits[UnitType.Rocket.ordinal()] == 0 &&
 	    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket));
-	    	boolean wantFactory = (myLandUnits[UnitType.Factory.ordinal()] == 0 &&
+	    	boolean wantFactory = (zone.myLandUnits[UnitType.Factory.ordinal()] == 0 &&
 	    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory));
 	    	
 	    	int spaces = 0;
@@ -1170,7 +1210,7 @@ public class Player {
 					units.updateUnit(buildLoc);
 					unit = units.updateUnit(id);
 					debug(2, "worker blueprinting rocket");
-					myLandUnits[UnitType.Rocket.ordinal()]++;
+					zone.myLandUnits[UnitType.Rocket.ordinal()]++;
 					k = gc.karbonite();
 					updateBuildPriorities();
 				}
@@ -1181,7 +1221,7 @@ public class Player {
 					units.updateUnit(buildLoc);
 					unit = units.updateUnit(id);
 					debug(2, "worker blueprinting factory");
-					myLandUnits[UnitType.Factory.ordinal()]++;
+					zone.myLandUnits[UnitType.Factory.ordinal()]++;
 					updateBuildPriorities();
 				}
 	    	}
@@ -1210,9 +1250,9 @@ public class Player {
 		}
 		
 		//Check to see if we should replicate
-    	boolean replicate = (!saveForRocket && myLandUnits[UnitType.Worker.ordinal()] < maxWorkers);
+    	boolean replicate = (!saveForRocket && zone.myLandUnits[UnitType.Worker.ordinal()] < maxWorkers);
     	if (myPlanet == Planet.Earth) {
-    		if (karbonite.locations().size() == 0 && myLandUnits[UnitType.Factory.ordinal()] == 0)
+    		if (karbonite.locations().size() == 0 && zone.myLandUnits[UnitType.Factory.ordinal()] == 0)
     			replicate = false; //Save up for a factory
     	} else {
 	    	if (currentRound > EvacuationRound) //Might as well spend all our karbonite
@@ -1225,7 +1265,7 @@ public class Player {
     		gc.replicate(id, dir);
     		debug(2, "worker replicating");
     		unit = units.updateUnit(id);
-    		myLandUnits[UnitType.Worker.ordinal()]++;
+    		zone.myLandUnits[UnitType.Worker.ordinal()]++;
     		Unit newWorker = units.updateUnit(loc.add(dir));
     		processUnit(newWorker);
     	}
@@ -1375,6 +1415,7 @@ public class Player {
     		return;
     	
     	int fid = unit.id();
+    	ZoneState zone = zoneState[map.zone(unit.location().mapLocation())];
     	long garrisoned = unit.structureGarrison().size();
     	//Unload units if possible
     	if (garrisoned > 0) {
@@ -1382,7 +1423,7 @@ public class Player {
     		 * Pick the direction our strategy unit would move
     		 */
 			while (garrisoned > 0) {
-    			Direction dir = bestMove(unit, getGravityMap(strategy), true);
+    			Direction dir = bestMove(unit, getGravityMap(zone.strategy), true);
     			if (dir != null && gc.canUnload(unit.id(), dir)) {
     				gc.unload(unit.id(), dir);
     				debug(2, "Unloading from factory");
@@ -1401,19 +1442,19 @@ public class Player {
     	 * The algorithm is adaptive, i.e. we check to see how many units need healing and create healers accordingly
     	 * We have an upper bound equal to the number of our strategy unit and a miniumum of 1/4 of that
     	 */   		
-    	UnitType produce = strategy;
-    	int combatUnits = myLandUnits[UnitType.Ranger.ordinal()] + myLandUnits[UnitType.Mage.ordinal()] + myLandUnits[UnitType.Knight.ordinal()];
+    	UnitType produce = zone.strategy;
+    	int combatUnits = zone.myLandUnits[UnitType.Ranger.ordinal()] + zone.myLandUnits[UnitType.Mage.ordinal()] + zone.myLandUnits[UnitType.Knight.ordinal()];
     	int healers = unitsToHeal.size()*2;
     	if (healers > combatUnits / 2)
     		healers = combatUnits / 2;
     	else if (healers < combatUnits / 4)
     		healers = combatUnits / 4;
     	
-    	if (myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, combatUnits))
+    	if (zone.myLandUnits[UnitType.Worker.ordinal()] < Math.min(maxWorkers, combatUnits))
     		produce = UnitType.Worker;
-    	else if (myLandUnits[UnitType.Healer.ordinal()] < healers)
+    	else if (zone.myLandUnits[UnitType.Healer.ordinal()] < healers)
     		produce = UnitType.Healer;
-    	else if ((myLandUnits[UnitType.Ranger.ordinal()] + 1)*2 < myLandUnits[UnitType.Mage.ordinal()])
+    	else if ((zone.myLandUnits[UnitType.Ranger.ordinal()] + 1)*2 < zone.myLandUnits[UnitType.Mage.ordinal()])
     		produce = UnitType.Ranger; //Mages need the vision range of rangers
     	
     	if ((!saveForRocket || produce == UnitType.Worker) && gc.canProduceRobot(fid, produce)) {
