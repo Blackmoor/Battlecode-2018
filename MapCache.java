@@ -6,25 +6,24 @@ import bc.*;
  * Stores the static parts of a planet map
  */
 public class MapCache {
-	private MapInfo[][]	info;
+	private MapInfo[][]	map;
 	private int w; //map width
 	private int h; //map height
 	
-	public MapCache(GameController gc) {
-		Planet	myPlanet = gc.planet();
-		PlanetMap map = gc.startingMap(myPlanet);
-		w = (int) map.getWidth();
-		h = (int) map.getHeight();
+	public MapCache(PlanetMap pm) {
+		w = (int) pm.getWidth();
+		h = (int) pm.getHeight();
 		
-		info = new MapInfo[w][h];
+		map = new MapInfo[w][h];
+		Planet planet = pm.getPlanet();
 		
 		/*
 		 * Create the cache of locations
 		 */
         for (int x = 0; x<w; x++) {
     		for (int y=0; y<h; y++) {
-    			MapLocation m = new MapLocation(myPlanet, x, y);
-    			info[x][y] = new MapInfo(m, (map.isPassableTerrainAt(m) > 0)); 
+    			MapLocation m = new MapLocation(planet, x, y);
+    			map[x][y] = new MapInfo(m, (pm.isPassableTerrainAt(m) > 0)); 
     		}
 		}
         
@@ -32,56 +31,64 @@ public class MapCache {
          * Now cache all the neighbours of each location and a subset of that (passable locations) for quick access later
          */
     	for (int x = 0; x<w; x++) {
-    		for (int y=0; y<map.getHeight(); y++) {
-    			MapLocation here = info[x][y].here;
-    			info[x][y].neighbours = allNeighboursOf(here);
-    			info[x][y].passableNeighbours = allPassableNeighbours(here);   						
+    		for (int y=0; y<h; y++) {
+    			MapLocation here = map[x][y].here;
+    			map[x][y].neighbours = allNeighboursOf(here);
+    			map[x][y].passableNeighbours = allPassableNeighbours(here);   						
     		}
     	}        
 	}
 
+	public int width() {
+		return w;
+	}
+	
+	public int height() {
+		return h;
+	}
+	
 	public MapLocation loc(int x, int y) {
-		return info[x][y].here;
+		return map[x][y].here;
 	}
 	
 	public LinkedList<MapLocation> neighbours(int x, int y) {
-		return info[x][y].neighbours;
+		return map[x][y].neighbours;
 	}
 	
 	public LinkedList<MapLocation> neighbours(MapLocation m) {
-		return info[m.getX()][m.getY()].neighbours;
+		return map[m.getX()][m.getY()].neighbours;
 	}
 	
 	public LinkedList<MapLocation> passableNeighbours(int x, int y) {
-		return info[x][y].passableNeighbours;
+		return map[x][y].passableNeighbours;
 	}
 	
 	public LinkedList<MapLocation> passableNeighbours(MapLocation m) {
-		return info[m.getX()][m.getY()].passableNeighbours;
+		return map[m.getX()][m.getY()].passableNeighbours;
 	}
 	
 	public boolean passable(int x, int y) {
-		return info[x][y].passable;
+		return map[x][y].passable;
 	}
 	
 	public boolean passable(MapLocation m) {
-		return info[m.getX()][m.getY()].passable;
+		return map[m.getX()][m.getY()].passable;
 	}
 	
 	public int zone(int x, int y) {
-		return info[x][y].zone;
+		return map[x][y].zone;
 	}
 	
 	public int zone(MapLocation m) {
-		return info[m.getX()][m.getY()].zone;
+		return map[m.getX()][m.getY()].zone;
 	}
 	
 	public void setZone(int x, int y, int z) {
-		info[x][y].zone = z;
+		map[x][y].zone = z;
 	}
 	
 	public void setZone(MapLocation m, int z) {
-		info[m.getX()][m.getY()].zone = z;
+		map[m.getX()][m.getY()].zone = z;
 	}
 	
   	private LinkedList<MapLocation> allNeighboursOf(MapLocation centre) {
@@ -89,23 +96,23 @@ public class MapCache {
     	int cx = centre.getX(), cy = centre.getY();
 
     	if (cx > 0) {
-    		result.add(info[cx-1][cy].here);
+    		result.add(map[cx-1][cy].here);
     		if (cy > 0)
-    			result.add(info[cx-1][cy-1].here);
+    			result.add(map[cx-1][cy-1].here);
     		if (cy+1 < h)
-    			result.add(info[cx-1][cy+1].here);
+    			result.add(map[cx-1][cy+1].here);
     	}
     	if (cy > 0)
-			result.add(info[cx][cy-1].here);
+			result.add(map[cx][cy-1].here);
 		if (cy+1 < h)
-			result.add(info[cx][cy+1].here);
+			result.add(map[cx][cy+1].here);
 		
 		if (cx+1 < w) {
-			result.add(info[cx+1][cy].here);
+			result.add(map[cx+1][cy].here);
     		if (cy > 0)
-    			result.add(info[cx+1][cy-1].here);
+    			result.add(map[cx+1][cy-1].here);
     		if (cy+1 < h)
-    			result.add(info[cx+1][cy+1].here);
+    			result.add(map[cx+1][cy+1].here);
 		}
 		return result;
     }
@@ -118,8 +125,8 @@ public class MapCache {
      */
     private LinkedList<MapLocation> allPassableNeighbours(MapLocation l) {
     	LinkedList<MapLocation> result = new LinkedList<MapLocation>();
-    	for (MapLocation test:info[l.getX()][l.getY()].neighbours) {
-    		if (info[test.getX()][test.getY()].passable)
+    	for (MapLocation test:map[l.getX()][l.getY()].neighbours) {
+    		if (map[test.getX()][test.getY()].passable)
     			result.add(test);
 		}
     	
@@ -130,24 +137,24 @@ public class MapCache {
     	LinkedList<MapLocation> result = new LinkedList<MapLocation>();
     	int cx = centre.getX(), cy = centre.getY();
     	
-    	if (max == 100 && info[cx][cy].within100 != null)
-    		return info[cx][cy].within100;
-    	if (max == 70 && info[cx][cy].within70 != null)
-    		return info[cx][cy].within70;
+    	if (max == 100 && map[cx][cy].within100 != null)
+    		return map[cx][cy].within100;
+    	if (max == 70 && map[cx][cy].within70 != null)
+    		return map[cx][cy].within70;
     	if (max == 50) {
-    		if (min == 10 && info[cx][cy].within50_10 != null)
-    			return info[cx][cy].within50_10;
-    		if (info[cx][cy].within50 != null)
-    			return info[cx][cy].within50;
+    		if (min == 10 && map[cx][cy].within50_10 != null)
+    			return map[cx][cy].within50_10;
+    		if (map[cx][cy].within50 != null)
+    			return map[cx][cy].within50;
     	}
     	if (max == 30) {
-    		if (min == 8 && info[cx][cy].within30_8 != null)
-    			return info[cx][cy].within30_8;
-    		if (info[cx][cy].within30 != null)
-    			return info[cx][cy].within30;
+    		if (min == 8 && map[cx][cy].within30_8 != null)
+    			return map[cx][cy].within30_8;
+    		if (map[cx][cy].within30 != null)
+    			return map[cx][cy].within30;
     	}   		
-    	if (max == 10 && info[cx][cy].within10 != null) {
-    		return info[cx][cy].within10;
+    	if (max == 10 && map[cx][cy].within10 != null) {
+    		return map[cx][cy].within10;
     	}
     	
     	if (min < 0)
@@ -161,13 +168,13 @@ public class MapCache {
     		if (x*x <= min)
     			continue;
     		if (cx+x < w)
-				result.add(info[cx+x][cy].here);
+				result.add(map[cx+x][cy].here);
 			if (cy+x < h)
-				result.add(info[cx][cy+x].here);
+				result.add(map[cx][cy+x].here);
 			if (cx-x >= 0)
-				result.add(info[cx-x][cy].here);
+				result.add(map[cx-x][cy].here);
 			if (cy-x >= 0)
-				result.add(info[cx][cy-x].here);
+				result.add(map[cx][cy-x].here);
     	}
     	
     	//Now the diagonals
@@ -176,15 +183,15 @@ public class MapCache {
     			continue;
     		if (cx+x < w) {
     			if (cy+x < h)
-    				result.add(info[cx+x][cy+x].here);
+    				result.add(map[cx+x][cy+x].here);
     			if (cy-x >= 0)
-    				result.add(info[cx+x][cy-x].here);
+    				result.add(map[cx+x][cy-x].here);
     		}
 			if (cx-x >= 0) {
 				if (cy+x < h)
-					result.add(info[cx-x][cy+x].here);
+					result.add(map[cx-x][cy+x].here);
 				if (cy-x >= 0)
-					result.add(info[cx-x][cy-x].here);
+					result.add(map[cx-x][cy-x].here);
 			}
     	}
     	
@@ -197,49 +204,49 @@ public class MapCache {
     				continue;
 				if (cx+x < w) {
 					if (cy+y < h)
-						result.add(info[cx+x][cy+y].here);
+						result.add(map[cx+x][cy+y].here);
 					if (cy-y >= 0)
-						result.add(info[cx+x][cy-y].here);
+						result.add(map[cx+x][cy-y].here);
 				}
 				if (cx-y >= 0) {
 					if (cy+x < h)
-						result.add(info[cx-y][cy+x].here);
+						result.add(map[cx-y][cy+x].here);
 					if (cy-x >= 0)
-						result.add(info[cx-y][cy-x].here);
+						result.add(map[cx-y][cy-x].here);
 				}
 				if (cx-x >= 0) {
 					if (cy-y >= 0)
-						result.add(info[cx-x][cy-y].here);
+						result.add(map[cx-x][cy-y].here);
 					if (cy+y < h)
-						result.add(info[cx-x][cy+y].here);
+						result.add(map[cx-x][cy+y].here);
 				}
 				if (cx+y < w) {
 					if (cy-x >= 0)
-						result.add(info[cx+y][cy-x].here);				
+						result.add(map[cx+y][cy-x].here);				
 					if (cy+x < h)
-						result.add(info[cx+y][cy+x].here);
+						result.add(map[cx+y][cy+x].here);
 				}
     		}
     	}
     	
     	if (max == 100)
-    		info[cx][cy].within100 = result;
+    		map[cx][cy].within100 = result;
     	if (max == 70)
-    		info[cx][cy].within70 = result;
+    		map[cx][cy].within70 = result;
     	if (max == 50) {
     		if (min == 10)
-    			info[cx][cy].within50_10 = result;
+    			map[cx][cy].within50_10 = result;
     		else
-    			info[cx][cy].within50 = result;
+    			map[cx][cy].within50 = result;
     	}
     	if (max == 30) {
     		if (min == 8)
-    			info[cx][cy].within30_8 = result;
+    			map[cx][cy].within30_8 = result;
     		else
-    			info[cx][cy].within30 = result;
+    			map[cx][cy].within30 = result;
     	}
     	if (max == 10)
-    		info[cx][cy].within10 = result;
+    		map[cx][cy].within10 = result;
     	
     	return result;
     }
