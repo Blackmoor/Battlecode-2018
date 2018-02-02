@@ -3,7 +3,6 @@ import bc.*;
 /*
  * We are given all the units we are aware of
  * Our units can change position during the turn - enemy units can't but they can be destroyed by damage we inflict
- * We keep the current state and last turns state. If a unit hasn't moved we mark it as stuck.
  */
 public class UnitCache {
 	private GameController	gc;
