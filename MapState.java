@@ -14,15 +14,14 @@ public class MapState {
 	 private LinkedList<MapLocation> exploreZone = new LinkedList<MapLocation>(); //All locs that are passable and not visible but next to a visible location
 	 private int width;
 	 private int height;
-	 private MapCache info;
+	 private MapCache map;
+	 private boolean explored; //Set to true if there are no locations that are passable and not visible
 	 
-	 public MapState(GameController gc, MapCache mc) {
-		 Planet myPlanet = gc.planet();
-		 PlanetMap map = gc.startingMap(myPlanet);
-		 
-		 width = (int)map.getWidth();
-		 height = (int)map.getHeight();
-		 info = mc;
+	 public MapState(MapCache mc) {
+		 map = mc;		 
+		 width = mc.width();
+		 height = mc.height();
+		 explored = false;
 	 }
 	 
 	 public void clear() {
@@ -39,18 +38,24 @@ public class MapState {
 	 }
 	 
 	 public void explore() {
+		 explored = true;	 
 		 for (int x=0; x<width; x++) {
 			for (int y=0; y<height; y++) {  
-				if (!visible[x][y] && info.passable(x, y)) { //Unseen - are we adjacent to a visible location
-					for (MapLocation m:info.passableNeighbours(x, y)) {
+				if (!visible[x][y] && map.passable(x, y)) { //Unseen - are we adjacent to a visible location
+					explored = false;
+					for (MapLocation m:map.passableNeighbours(x, y)) {
 						if (visible[m.getX()][m.getY()]) {
-							exploreZone.add(info.loc(x, y));
+							exploreZone.add(map.loc(x, y));
 							break;
 						}
 					}
 				}
 			}
 		}
+	 }
+	 
+	 public boolean explored() {
+		 return explored;
 	 }
 	 
 	 public void addDanger(int x, int y, int d) {
