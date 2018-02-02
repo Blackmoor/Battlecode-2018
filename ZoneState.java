@@ -29,4 +29,14 @@ public class ZoneState {
     	unitsToBuild.clear();
     	rockets.clear();
     }
+    
+    public int rocketsNeeded(long currentRound) {
+    	int unitsToTransport = (myLandUnits[UnitType.Healer.ordinal()]) +
+				myLandUnits[UnitType.Ranger.ordinal()] +
+				myLandUnits[UnitType.Mage.ordinal()] +
+				myLandUnits[UnitType.Knight.ordinal()];
+		if (currentRound > 700)
+			unitsToTransport += myLandUnits[UnitType.Worker.ordinal()];
+		return ((unitsToTransport+7) / 8) - myLandUnits[UnitType.Rocket.ordinal()];
+    }
 }

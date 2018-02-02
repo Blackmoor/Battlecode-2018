@@ -12,14 +12,17 @@ public class Karbonite {
 	GameController gc;
 	private long[][] karboniteAt;
 	private LinkedList<MapLocation> karboniteLocations;
-	private int maxWorkers; //How many workers we need to mine this planet
+	private int[] maxWorkers; //How many workers we need to mine each zone
+	private MapCache mapCache;
 	
-	public Karbonite(GameController g, MapCache mc) {
+	public Karbonite(GameController g, MapCache mc, int zones) {
 		gc = g;
 		Planet	myPlanet = gc.planet();
 		PlanetMap map = gc.startingMap(myPlanet);
 		int w = (int) map.getWidth(), h = (int) map.getHeight();
-		int turnsToMine = 0;
+		int[] turnsToMine = new int[zones];
+		maxWorkers = new int[zones];
+		mapCache = mc;
 		
 		karboniteAt = new long[w][h];
 		karboniteLocations = new LinkedList<MapLocation>();
@@ -29,13 +32,15 @@ public class Karbonite {
 				karboniteAt[x][y] = map.initialKarboniteAt(m);
 				if (karboniteAt[x][y] > 0) {
 					karboniteLocations.add(m);
-					turnsToMine += (karboniteAt[x][y] + 2) / 3;
+					turnsToMine[mc.zone(x, y)] += (karboniteAt[x][y] + 2) / 3;
 				}   
 			}
 		}
     	
-    	int minWorkers = (turnsToMine == 0?4:8);
-    	maxWorkers = Math.max(minWorkers, turnsToMine / 100);
+		int minWorkers = (karboniteLocations.size() == 0)?4:8;
+		for (int z=0; z<zones; z++) {
+	    	maxWorkers[z] = Math.max(minWorkers, turnsToMine[z] / 100);
+		}
 	}
 	
 	public long karboniteAt(int x, int y) {
@@ -50,22 +55,25 @@ public class Karbonite {
 		return karboniteLocations;
 	}
 	
-	public int maxWorkers() {
-		return maxWorkers;
+	public int maxWorkers(int zone) {
+		return maxWorkers[zone];
 	}
 	
 	/*
 	 * Update all currently known karbonite values
 	 */
 	public void update(MapState ms) {
+		int zones = maxWorkers.length;
+		int[] turnsToMine = new int[zones];
 		for (Iterator<MapLocation> iterator = karboniteLocations.iterator(); iterator.hasNext();) {
     	    MapLocation m = iterator.next();   	    
     		if (ms.visible(m.getX(), m.getY())) {
     			long k = gc.karboniteAt(m);
     			if (k == 0)
     				iterator.remove();
-    			karboniteAt[m.getX()][m.getY()] = k;			
+    			karboniteAt[m.getX()][m.getY()] = k;   			
     		}
+    		turnsToMine[mapCache.zone(m)] += ((karboniteAt[m.getX()][m.getY()] + 2) / 3);
     	}	
     	
     	if (gc.planet() == Planet.Mars) {
@@ -76,6 +84,11 @@ public class Karbonite {
     			karboniteAt[strike.getX()][strike.getY()] += gc.asteroidPattern().asteroid(currentRound).getKarbonite();
     		}
     	}
+    	
+    	int minWorkers = (karboniteLocations.size() == 0)?4:8;
+    	for (int z=0; z<zones; z++) {
+	    	maxWorkers[z] = Math.max(minWorkers, turnsToMine[z] / 100);
+		}
 	}
 	
 	public void harvest(MapLocation here, Unit u) {
