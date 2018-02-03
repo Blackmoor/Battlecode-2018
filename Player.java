@@ -615,16 +615,14 @@ public class Player {
 	    	
     	//Add enemies
     	LinkedList<MapLocation> targets = new LinkedList<MapLocation>();
-    	LinkedList<MapLocation> avoid = new LinkedList<MapLocation>();
     	for (Unit u:enemies) {
     		//We want to be at our attack distance from each enemy
     		MapLocation enemyLoc = u.location().mapLocation();
-    		avoid.add(enemyLoc);
     		targets.addAll(map.allLocationsWithin(enemyLoc, 10, 50));
     	}
 
     	ripple(rangerMap, targets, 30, UnitType.Ranger, rangerCount, -1);
-    	ripple(rangerMap, targets, -5, UnitType.Ranger, rangerCount, 8);
+    	ripple(rangerMap, combatants, -5, UnitType.Ranger, rangerCount, 8);
     	
 
     	//If no enemies - explore
@@ -645,15 +643,13 @@ public class Player {
 	    	
     	//Add enemies
     	LinkedList<MapLocation> targets = new LinkedList<MapLocation>();
-    	LinkedList<MapLocation> avoid = new LinkedList<MapLocation>();
     	for (Unit u:enemies) {
     		//We want to be at our attack distance from each enemy
     		MapLocation enemyLoc = u.location().mapLocation();
-    		avoid.add(enemyLoc);
     		targets.addAll(map.allLocationsWithin(enemyLoc, 8, 30));
     	}
     	ripple(mageMap, targets, 30, UnitType.Mage, mageCount, -1);
-    	ripple(mageMap, targets, -5, UnitType.Mage, mageCount, 8);
+    	ripple(mageMap, combatants, -5, UnitType.Mage, mageCount, 8);
     }
     
     /*
@@ -674,10 +670,7 @@ public class Player {
     	ripple(healerMap, unitsToHeal, 100, UnitType.Healer, healerCount, -1);
     	
     	//Avoid all enemies
-    	LinkedList<MapLocation> avoid = new LinkedList<MapLocation>();
-    	for (Unit u:enemies)
-    		avoid.add(u.location().mapLocation()); 
-    	ripple(healerMap, avoid, -5, UnitType.Healer, healerCount, 12);
+    	ripple(healerMap, combatants, -5, UnitType.Healer, healerCount, 12);
     }
     
     private static void updateKnightMap() {
@@ -725,7 +718,8 @@ public class Player {
     	}
     	
 		//Add Karbonite deposits
-		ripple(workerMap, karbonite.locations(), 10, UnitType.Worker, workerCount, -1);	
+		ripple(workerMap, karbonite.locations(), 10, UnitType.Worker, workerCount, -1);
+		ripple(workerMap, combatants, -5, UnitType.Worker, workerCount, 8);
     }
     
     private static double[][] getGravityMap(UnitType type) {
@@ -945,6 +939,7 @@ public class Player {
     private static LinkedList<MapLocation> enemyLocs = new LinkedList<MapLocation>(); //Start position of the enemy - used in place of the exploreZone at the start of the game
     private static boolean separated = false; //Set to true if we start off in different zones to the enemy
     private static LinkedList<Unit> enemies = new LinkedList<Unit>(); //List of all enemy units in sight
+    private static LinkedList<MapLocation> combatants = new LinkedList<MapLocation>(); //List of all combat worthy enemy units in sight
     private static LinkedList<MapLocation> enemyStructures = new LinkedList<MapLocation>();
     private static LinkedList<MapLocation> enemyHealers = new LinkedList<MapLocation>();
     private static LinkedList<MapLocation> enemyRangers = new LinkedList<MapLocation>();
@@ -966,6 +961,7 @@ public class Player {
     	mapState.clear();
 
     	enemies.clear();
+    	combatants.clear();
     	enemyStructures.clear();
     	enemyHealers.clear();
     	enemyRangers.clear();
@@ -1012,6 +1008,7 @@ public class Player {
 	            			enemyStructures.add(unit.location().mapLocation());
 	            			break;
 	            		case Ranger:
+	            			combatants.add(unit.location().mapLocation());
 	            			enemyRangers.add(unit.location().mapLocation());
 	            			for (MapLocation m:map.allLocationsWithin(unit.location().mapLocation(), unit.rangerCannotAttackRange(), unit.attackRange())) {
 	            				int x = m.getX(), y = m.getY();
@@ -1019,6 +1016,7 @@ public class Player {
 	            			}
 	            			break;
 	            		case Knight: //Increase radius to 10 to account for them moving then attacking
+	            			combatants.add(unit.location().mapLocation());
 	            			enemyOthers.add(unit.location().mapLocation());
 	            			for (MapLocation m:map.allLocationsWithin(unit.location().mapLocation(), -1, 10)) {
 	            				int x = m.getX(), y = m.getY();
@@ -1030,6 +1028,7 @@ public class Player {
 	            			}
 	            			break;
 	            		case Mage: //TODO - Increase radius to account for splash damage
+	            			combatants.add(unit.location().mapLocation());
 	            			enemyOthers.add(unit.location().mapLocation());
 	            			for (MapLocation m:map.allLocationsWithin(unit.location().mapLocation(), -1, unit.attackRange())) {
 	            				int x = m.getX(), y = m.getY();
