@@ -778,11 +778,7 @@ public class Player {
     	if (myPlanet == Planet.Mars) {
     		mars = analysis;
     	} else { //On earth we process mars to work out landing zones
-    		int totalWorkers = 0;
-    		for (int z=0; z<zones; z++)
-    			totalWorkers += karbonite.maxWorkers(z);
-    		
-        	if (totalWorkers > 8)
+        	if (karbonite.remaining() > 500)
             	gc.queueResearch(UnitType.Worker); // Increase harvest amount
         	
     		mars = new MapAnalyser(gc, gc.startingMap(Planet.Mars), null);
@@ -955,8 +951,8 @@ public class Player {
         units.updateCache(); //All the units we can see
         unitsInSpace = gc.unitsInSpace(); //All the units in space
         
-        for (int zone=0; zone<zones; zone++)
-        	zoneState[zone].clear();
+        for (int z=0; z<zones; z++)
+        	zoneState[z].clear();
     	Arrays.fill(mySpaceUnits, 0);
     	mapState.clear();
 
@@ -1172,7 +1168,7 @@ public class Player {
 	    	 * Sometimes we block ourselves in due to excessive population (or a small planet)
 	    	 * If we want to build a rocket and we have no rockets then we destroy an adjacent unit and build there!
 	    	 */
-	    	boolean wantRocket = (zone.myLandUnits[UnitType.Rocket.ordinal()] < zone.rocketsNeeded(currentRound) &&
+	    	boolean wantRocket = (zone.rocketsNeeded(currentRound) > 0 &&
 	    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket));
 	    	boolean wantFactory = (zone.myLandUnits[UnitType.Factory.ordinal()] == 0 &&
 	    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory));
@@ -1203,11 +1199,10 @@ public class Player {
 	    	
 	    	if (buildLoc == null)
 	    		buildLoc = bestBuildLocation(loc);		
-	    	
+
 	    	if (buildLoc != null) {
 	    		Direction dir = loc.directionTo(buildLoc);
-				if (zone.myLandUnits[UnitType.Rocket.ordinal()] < zone.rocketsNeeded(currentRound) &&
-						k >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket) &&
+				if (wantRocket &&
 						gc.canBlueprint(id, UnitType.Rocket, dir)) {
 					gc.blueprint(id, UnitType.Rocket, dir);
 					units.updateUnit(buildLoc);

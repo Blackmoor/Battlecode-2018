@@ -14,6 +14,7 @@ public class Karbonite {
 	private LinkedList<MapLocation> karboniteLocations;
 	private int[] maxWorkers; //How many workers we need to mine each zone
 	private MapCache mapCache;
+	private int remaining = 0; //The total karbonite potentially left on the map
 	
 	public Karbonite(GameController g, MapCache mc, int zones) {
 		gc = g;
@@ -23,6 +24,7 @@ public class Karbonite {
 		int[] turnsToMine = new int[zones];
 		maxWorkers = new int[zones];
 		mapCache = mc;
+		remaining = 0;
 		
 		karboniteAt = new long[w][h];
 		karboniteLocations = new LinkedList<MapLocation>();
@@ -30,6 +32,7 @@ public class Karbonite {
 			for (int y=0; y<map.getHeight(); y++) {
 				MapLocation m = mc.loc(x, y);
 				karboniteAt[x][y] = map.initialKarboniteAt(m);
+				remaining += karboniteAt[x][y];
 				if (karboniteAt[x][y] > 0) {
 					karboniteLocations.add(m);
 					turnsToMine[mc.zone(x, y)] += (karboniteAt[x][y] + 2) / 3;
@@ -59,12 +62,18 @@ public class Karbonite {
 		return maxWorkers[zone];
 	}
 	
+	public int remaining() {
+		return remaining;
+	}
+	
 	/*
 	 * Update all currently known karbonite values
 	 */
 	public void update(MapState ms) {
 		int zones = maxWorkers.length;
 		int[] turnsToMine = new int[zones];
+		remaining = 0;
+		
 		for (Iterator<MapLocation> iterator = karboniteLocations.iterator(); iterator.hasNext();) {
     	    MapLocation m = iterator.next();   	    
     		if (ms.visible(m.getX(), m.getY())) {
@@ -74,6 +83,7 @@ public class Karbonite {
     			karboniteAt[m.getX()][m.getY()] = k;   			
     		}
     		turnsToMine[mapCache.zone(m)] += ((karboniteAt[m.getX()][m.getY()] + 2) / 3);
+    		remaining += karboniteAt[m.getX()][m.getY()];
     	}	
     	
     	if (gc.planet() == Planet.Mars) {
@@ -81,7 +91,11 @@ public class Karbonite {
     		if (gc.asteroidPattern().hasAsteroid(currentRound)) {
     			MapLocation strike = gc.asteroidPattern().asteroid(currentRound).getLocation();
     			karboniteLocations.add(strike);
-    			karboniteAt[strike.getX()][strike.getY()] += gc.asteroidPattern().asteroid(currentRound).getKarbonite();
+    			long k = gc.asteroidPattern().asteroid(currentRound).getKarbonite();
+    			int x = strike.getX(), y = strike.getY();
+    			karboniteAt[x][y] += k;
+    			turnsToMine[mapCache.zone(strike)] += ((k + 2) / 3);
+    			remaining += k;
     		}
     	}
     	

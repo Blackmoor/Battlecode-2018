@@ -37,6 +37,7 @@ public class ZoneState {
 				myLandUnits[UnitType.Knight.ordinal()];
 		if (currentRound > 700)
 			unitsToTransport += myLandUnits[UnitType.Worker.ordinal()];
+		
 		return ((unitsToTransport+7) / 8) - myLandUnits[UnitType.Rocket.ordinal()];
     }
 }
