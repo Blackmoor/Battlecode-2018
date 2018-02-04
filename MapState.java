@@ -1,3 +1,4 @@
+import java.util.Arrays;
 import java.util.LinkedList;
 
 import bc.*;
@@ -22,12 +23,16 @@ public class MapState {
 		 width = mc.width();
 		 height = mc.height();
 		 explored = false;
+		 danger = new int[width][height];
+		 visible = new boolean[width][height];
 	 }
 	 
 	 public void clear() {
 		 exploreZone.clear();
-		 danger = new int[width][height];
-		 visible = new boolean[width][height];
+		 for (int i=0; i<danger.length; i++) {
+			 Arrays.fill(danger[i], 0);
+			 Arrays.fill(visible[i], false);
+		 }			 
 	 }
 	 
 	 public void addVisibility(LinkedList<MapLocation> within) {
