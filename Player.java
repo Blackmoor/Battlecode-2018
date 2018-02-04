@@ -61,9 +61,6 @@ public class Player {
 		            karbonite.update(mapState);
 		            updateResearch();
 		            
-		            //TODO - order the units so we process them in a more efficient order
-		            //Not sure what that order is though!
-		            //Workers before factories
 		            VecUnit known = units.allUnits();
 		            for (int i=0; i<known.size(); i++) {
 		            	Unit u = known.get(i);
@@ -83,7 +80,6 @@ public class Player {
     }
     
     private static void processUnit(Unit unit) {
-    	//long now = System.currentTimeMillis();
     	switch(unit.unitType()) {
 	    	case Worker:
 	    		manageWorker(unit);
@@ -210,7 +206,7 @@ public class Player {
      * They pick the best move according to their gravity map and move in that direction
      * If the destination is a structure of our - get it to load us
      */
-    private static Unit moveUnit(Unit unit) {
+    private static Unit moveUnit(Unit unit, boolean allowStructure) {
     	int id = unit.id();
     	
     	if (!unit.location().isOnMap() || !gc.isMoveReady(id))
@@ -229,7 +225,7 @@ public class Player {
 			unit = units.updateUnit(id);
 		} else { //Check to see if there is a structure of ours there
 			Unit structure = units.unitAt(dest);
-			if (structure != null && gc.canLoad(structure.id(), id)) {
+			if (structure != null && allowStructure && gc.canLoad(structure.id(), id)) {
 				units.removeUnit(loc);
 				gc.load(structure.id(), id);
 				units.updateUnit(structure.id());
@@ -546,8 +542,13 @@ public class Player {
 		/*
 		 * The damagedMap is for all units who have lost half their health
 		 */
-    	if (unitsToHeal.size() > 0 && healers.size() > 0)
-    		ripple(damagedMap, healers, 50, null, 1000, -1);
+    	if (unitsToHeal.size() > 0 && healers.size() > 0) {
+    		LinkedList<MapLocation> healing = new LinkedList<MapLocation>();
+    		
+    		for (MapLocation h:healers)
+    			healing.addAll(map.allLocationsWithin(h, 0, 30)); //All areas in range but ignoring our location
+    		ripple(damagedMap, healing, 50, null, 1000, -1);
+    	}
     	
     	if (myPlanet != Planet.Earth) //We process rockets next - nothing to do on Mars
     		return;
@@ -622,9 +623,7 @@ public class Player {
     	}
 
     	ripple(rangerMap, targets, 30, UnitType.Ranger, rangerCount, -1);
-    	ripple(rangerMap, combatants, -5, UnitType.Ranger, rangerCount, 8);
     	
-
     	//If no enemies - explore
     	if (enemies.size() == 0) {
     		LinkedList<MapLocation> explore = (currentRound < 200 && enemyLocs.size() > 0)?enemyLocs:mapState.exploreZone();
@@ -649,7 +648,6 @@ public class Player {
     		targets.addAll(map.allLocationsWithin(enemyLoc, 8, 30));
     	}
     	ripple(mageMap, targets, 30, UnitType.Mage, mageCount, -1);
-    	ripple(mageMap, combatants, -5, UnitType.Mage, mageCount, 8);
     }
     
     /*
@@ -667,10 +665,10 @@ public class Player {
 	    	healerCount += zoneState[z].myLandUnits[UnitType.Healer.ordinal()];
 	    	
     	//Add damaged units
-    	ripple(healerMap, unitsToHeal, 100, UnitType.Healer, healerCount, -1);
+    	ripple(healerMap, unitsToHeal, 10, UnitType.Healer, healerCount, -1);
     	
     	//Avoid all enemies
-    	ripple(healerMap, combatants, -5, UnitType.Healer, healerCount, 12);
+    	ripple(healerMap, combatants, -5, UnitType.Healer, healerCount, 8);
     }
     
     private static void updateKnightMap() {
@@ -717,9 +715,12 @@ public class Player {
 			}
     	}
     	
-		//Add Karbonite deposits
-		ripple(workerMap, karbonite.locations(), 10, UnitType.Worker, workerCount, -1);
-		ripple(workerMap, combatants, -5, UnitType.Worker, workerCount, 8);
+		//Add Safe Karbonite deposits
+    	LinkedList<MapLocation> safe = new LinkedList<MapLocation>();
+    	for (MapLocation m:karbonite.locations())
+    		if (mapState.danger(m.getX(), m.getY()) == 0)
+    			safe.add(m);
+		ripple(workerMap, safe, 10, UnitType.Worker, workerCount, -1);
     }
     
     private static double[][] getGravityMap(UnitType type) {
@@ -778,7 +779,7 @@ public class Player {
     	if (myPlanet == Planet.Mars) {
     		mars = analysis;
     	} else { //On earth we process mars to work out landing zones
-        	if (karbonite.remaining() > 500)
+        	if (karbonite.remaining() > 2500)
             	gc.queueResearch(UnitType.Worker); // Increase harvest amount
         	
     		mars = new MapAnalyser(gc, gc.startingMap(Planet.Mars), null);
@@ -823,6 +824,8 @@ public class Player {
 	/*
 	 * Find the best location to build
 	 * We want safe open space around us if possible and not adjacent to other structures
+	 * We want to avoid enemy factories (as they will be active before us)
+	 * If we have lots of workers nearby then this is good - TODO
 	 */
 	private static MapLocation bestBuildLocation(MapLocation loc) {
 		LinkedList<MapLocation> options = allOpenNeighbours(loc);
@@ -992,7 +995,7 @@ public class Player {
             		} else {
                 		if (unit.unitType() == UnitType.Healer)
                 			healers.add(unit.location().mapLocation());
-            			if (unit.health() < unit.maxHealth())
+                		if (unit.health() < unit.maxHealth())
             				unitsToHeal.add(unit.location().mapLocation());
             		}
             	} else { //enemies
@@ -1129,9 +1132,7 @@ public class Player {
     	
     	int id = unit.id();
 		//Do we want to move to a better location
-        unit = moveUnit(unit);            
-        if (!unit.location().isOnMap())
-    		return;
+        unit = moveUnit(unit, false);            
         
 		MapLocation loc = unit.location().mapLocation();
 		ZoneState zone = zoneState[map.zone(loc)];
@@ -1168,7 +1169,7 @@ public class Player {
 	    	 * Sometimes we block ourselves in due to excessive population (or a small planet)
 	    	 * If we want to build a rocket and we have no rockets then we destroy an adjacent unit and build there!
 	    	 */
-	    	boolean wantRocket = (zone.rocketsNeeded(currentRound) > 0 &&
+	    	boolean wantRocket = (zone.rocketsNeeded(currentRound) > 0 && zone.myLandUnits[UnitType.Rocket.ordinal()] == 0 &&
 	    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket));
 	    	boolean wantFactory = (zone.myLandUnits[UnitType.Factory.ordinal()] == 0 &&
 	    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory));
@@ -1202,7 +1203,8 @@ public class Player {
 
 	    	if (buildLoc != null) {
 	    		Direction dir = loc.directionTo(buildLoc);
-				if (wantRocket &&
+				if (zone.rocketsNeeded(currentRound) > 0 &&
+		    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket) &&
 						gc.canBlueprint(id, UnitType.Rocket, dir)) {
 					gc.blueprint(id, UnitType.Rocket, dir);
 					units.updateUnit(buildLoc);
@@ -1279,6 +1281,8 @@ public class Player {
     		Unit newWorker = units.updateUnit(loc.add(dir));
     		processUnit(newWorker);
     	}
+    	
+    	unit = moveUnit(unit, true);
     }
     
     /***********************************************************************************
@@ -1389,7 +1393,7 @@ public class Player {
     		//If we haven't sent out a message for units to come to us we unload them as they are probably passing through
     		if (garrisoned > 0 && rangerMap[here.getX()][here.getY()] < 1000) {
     			while (garrisoned > 0) {
-	    			Direction dir = bestMove(unit, workerMap, true);
+	    			Direction dir = bestMove(unit, getGravityMap(UnitType.Worker), true);
 	    			if (dir != null && gc.canUnload(unit.id(), dir)) {
 	    				gc.unload(unit.id(), dir);
 	    				debug(2, "Unloading from rocket - passing through");
@@ -1425,33 +1429,44 @@ public class Player {
     		return;
     	
     	int fid = unit.id();
-    	int zoneId = map.zone(unit.location().mapLocation());
+    	MapLocation loc = unit.location().mapLocation();
+    	int zoneId = map.zone(loc);
     	ZoneState zone = zoneState[zoneId];
     	long garrisoned = unit.structureGarrison().size();
-    	//Unload units if possible
-    	if (garrisoned > 0) {
-    		/*
-    		 * Pick the direction our strategy unit would move
-    		 */
-			while (garrisoned > 0) {
-    			Direction dir = bestMove(unit, getGravityMap(zone.strategy), true);
-    			if (dir != null && gc.canUnload(unit.id(), dir)) {
-    				gc.unload(unit.id(), dir);
-    				debug(2, "Unloading from factory");
-    				MapLocation where = unit.location().mapLocation().add(dir);	        			
-    	    		processUnit(units.updateUnit(where));
-    			}
-    			garrisoned--;
+
+		/*
+		 * Unload units if possible
+		 * Pick the direction our strategy unit would move
+		 */
+		while (garrisoned > 0) {
+			Direction dir = bestMove(unit, getGravityMap(zone.strategy), true);
+			if (dir == null) { //No room - try to make space as we have probably got a combat unit inside
+				for (Unit u: senseNearbyUnits(loc, 2, myTeam)) {
+					if (u.unitType() == UnitType.Worker && gc.canLoad(fid, u.id())) {
+						dir = loc.directionTo(u.location().mapLocation());
+						units.removeUnit(u.location().mapLocation());
+						gc.load(fid, u.id());
+						unit = units.updateUnit(fid);
+						break;
+					}	
+				}
 			}
-			unit = units.updateUnit(unit.id()); //Update garrison info
-    	}
+			if (dir != null && gc.canUnload(unit.id(), dir)) {
+				gc.unload(unit.id(), dir);
+				debug(2, "Unloading from factory");
+				MapLocation where = unit.location().mapLocation().add(dir);	        			
+	    		processUnit(units.updateUnit(where));
+			}
+			garrisoned--;
+			unit = units.updateUnit(fid);
+		}
     	
     	/*
     	 * Produce units
     	 * 
     	 * The number of healers we need is determined by the state of play.
     	 * The algorithm is adaptive, i.e. we check to see how many units need healing and create healers accordingly
-    	 * We have an upper bound equal to the number of our strategy unit and a miniumum of 1/4 of that
+    	 * We have an upper bound equal to the number of our combat unit and a miniumum of 1/3 of that
     	 */
     	
     	if (FloodRound - currentRound < 20)
@@ -1465,7 +1480,7 @@ public class Player {
     	else if (healers < combatUnits / 4)
     		healers = combatUnits / 4;
     	
-    	if (zone.myLandUnits[UnitType.Worker.ordinal()] < Math.min(karbonite.maxWorkers(zoneId), combatUnits))
+    	if (zone.myLandUnits[UnitType.Worker.ordinal()] < Math.min(karbonite.maxWorkers(zoneId), combatUnits/4))
     		produce = UnitType.Worker;
     	else if (zone.myLandUnits[UnitType.Healer.ordinal()] < healers)
     		produce = UnitType.Healer;
@@ -1508,11 +1523,12 @@ public class Player {
     		}
     	}
     	
+    	unit = moveUnit(unit, false);
     	unit = splashAttack(unit);
     	if (unit == null)
     		return; //We killed ourself
     	
-        unit = moveUnit(unit);
+        unit = moveUnit(unit, true);
         if (unit.location().isOnMap())
     		splashAttack(unit);
     }
@@ -1575,7 +1591,7 @@ public class Player {
     		}
     	}
     	
-        unit = moveUnit(unit);
+        unit = moveUnit(unit, true);
         if (unit.location().isOnMap())
         	attackWeakest(unit);
     }
@@ -1584,14 +1600,7 @@ public class Player {
     	if (!unit.location().isOnMap())
     		return;
     	
-    	unit = attackWeakest(unit); 	   	
-        unit = moveUnit(unit);
-        if (!unit.location().isOnMap())
-    		return;
-        	
-        unit = attackWeakest(unit);
-        
-        if (unit.abilityHeat() < 10 && unit.isAbilityUnlocked() > 0) { //Check for javelin targets
+    	if (unit.abilityHeat() < 10 && unit.isAbilityUnlocked() > 0) { //Check for javelin targets
         	int target = bestJavelinTarget(unit);
         	if (target > 0 && gc.canJavelin(unit.id(), target)) {
         		gc.javelin(unit.id(), target);
@@ -1599,6 +1608,11 @@ public class Player {
         		unit = units.updateUnit(unit.id());
         	}
         }
+    	
+    	unit = attackWeakest(unit); 
+        unit = moveUnit(unit, true);
+        if (unit.location().isOnMap())
+    		unit = attackWeakest(unit);       
     }
     
     /*
@@ -1610,10 +1624,7 @@ public class Player {
     	if (!unit.location().isOnMap())
     		return;
     	
-        unit = moveUnit(unit);
-        
-        if (!unit.location().isOnMap())
-    		return;
+    	unit = moveUnit(unit, false);
     	
     	if (gc.isHealReady(unit.id())) {
     		//Pick the unit with the most damage in range
@@ -1661,5 +1672,7 @@ public class Player {
 				processUnit(bestTarget);
 	    	}
     	}
+    	
+    	unit = moveUnit(unit, true);    	
     }
 }
