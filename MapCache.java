@@ -138,8 +138,9 @@ public class MapCache {
     	LinkedList<MapLocation> result = new LinkedList<MapLocation>();
     	int cx = centre.getX(), cy = centre.getY();
     	Range r = new Range((int)min, (int)max);
-    	if (map[cx][cy].within.containsKey(r)) {
-    		return map[cx][cy].within.get(r);
+    	
+    	if (map[cx][cy].cache.containsKey(r)) {
+    		return map[cx][cy].cache.get(r);
     	}
     	
     	if (min < 0)
@@ -214,7 +215,7 @@ public class MapCache {
     		}
     	}
     	
-    	map[cx][cy].within.put(r, result);
+    	map[cx][cy].cache.put(r, result);
     	
     	return result;
     }
@@ -226,7 +227,7 @@ public class MapCache {
     	
     	public LinkedList<MapLocation>	neighbours;
     	public LinkedList<MapLocation>	passableNeighbours;
-    	public HashMap<Range, LinkedList<MapLocation>>	within;
+    	public HashMap<Range, LinkedList<MapLocation>>	cache;
     	
     	public MapInfo(MapLocation mapLocation, boolean p) {
     		here = mapLocation;
@@ -234,7 +235,7 @@ public class MapCache {
     		neighbours = null;
     		passableNeighbours = null;
     		zone = 0;
-    		within = new HashMap<Range, LinkedList<MapLocation>>();
+    		cache = new HashMap<Range, LinkedList<MapLocation>>();
     	}
     }
     
