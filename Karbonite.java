@@ -40,7 +40,7 @@ public class Karbonite {
 			}
 		}
     	
-		int minWorkers = (karboniteLocations.size() == 0)?4:8;
+		int minWorkers = (karboniteLocations.size() == 0)?3:6;
 		for (int z=0; z<zones; z++) {
 	    	maxWorkers[z] = Math.max(minWorkers, turnsToMine[z] / 100);
 		}
@@ -99,7 +99,7 @@ public class Karbonite {
     		}
     	}
     	
-    	int minWorkers = (karboniteLocations.size() == 0)?4:8;
+    	int minWorkers = (karboniteLocations.size() == 0)?3:6;
     	for (int z=0; z<zones; z++) {
 	    	maxWorkers[z] = Math.max(minWorkers, turnsToMine[z] / 100);
 		}
