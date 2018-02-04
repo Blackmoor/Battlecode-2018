@@ -429,6 +429,7 @@ public class Player {
     	boolean[][] open = new boolean[map.width()][map.height()]; //true if in the open list
     	int distance = 0; //How far from the source are we
     	int matchCount = 0; //How many units of the right type have we seen
+    	boolean ignoreWorkers = (gravityMap == null && currentRound <= 700); //Rockets don't want workers before round 700
     	
     	debug(3, "ripple: starting points " + edge.size() + " value " + points + " stop when " + max + " " + match + " or at dist " + stop);
     	
@@ -473,7 +474,8 @@ public class Player {
         		
         		Unit unit = units.unitAt(me);
 				if (unit != null && unit.team() == myTeam &&
-						(match == null || match == unit.unitType())) {
+						(match == null || match == unit.unitType()) &&
+						(unit.unitType() != UnitType.Worker || !ignoreWorkers)) {
 					matchCount++;
 					if (matchCount >= max) { //We have reached the cutoff point
 						debug(3, "Ripple match count met: complete at distance " + distance);
@@ -577,7 +579,7 @@ public class Player {
 	    	} else if (passengers > 0) {
 	    		for (Unit r: zone.rockets) {
 	    			int request = Math.min(passengers,  (int)(r.structureMaxCapacity() - r.structureGarrison().size()));
-	    			ripple(null, r.location().mapLocation(), currentRound*100, null, passengers, -1);
+	    			ripple(null, r.location().mapLocation(), currentRound, null, passengers, -1);
 	    			passengers -= request;
 	    			if (passengers <= 0)
 	    				break;
@@ -665,7 +667,7 @@ public class Player {
 	    	healerCount += zoneState[z].myLandUnits[UnitType.Healer.ordinal()];
 	    	
     	//Add damaged units
-    	ripple(healerMap, unitsToHeal, 10, UnitType.Healer, healerCount, -1);
+    	ripple(healerMap, unitsToHeal, 20, UnitType.Healer, healerCount, -1);
     	
     	//Avoid all enemies
     	ripple(healerMap, combatants, -5, UnitType.Healer, healerCount, 8);
@@ -711,7 +713,7 @@ public class Player {
 			//Add blueprints and damaged buildings - this is usually a small list so do them individually
 			for (MapLocation m: zone.unitsToBuild) {
 				LinkedList<MapLocation> workSpace = map.passableNeighbours(m);
-				ripple(workerMap, workSpace, 50, UnitType.Worker, Math.min(zoneWorkers, workSpace.size()), -1);
+				ripple(workerMap, workSpace, 20, UnitType.Worker, Math.min(zoneWorkers, workSpace.size()), -1);
 			}
     	}
     	
