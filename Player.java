@@ -918,9 +918,13 @@ public class Player {
         	if (separated) {
         		//Get to mars quickly
         		gc.queueResearch(UnitType.Rocket);
-        	} else if (Math.max(w, h) <= 30) { // We are on a small map and connected
-        		for (int z=0; z<zones; z++)
-        			zoneState[z].strategy = UnitType.Mage;
+        	} else { //We share the zones	        	
+        		for (int z=0; z<zones; z++) {
+        			if (analysis.zones.get(z).tiles.size() < 60)
+        				zoneState[z].strategy = UnitType.Knight;
+        			else if (analysis.zones.get(z).tiles.size() < 400)
+        				zoneState[z].strategy = UnitType.Mage;
+        		}
         	}
     	}
     }   
@@ -943,7 +947,7 @@ public class Player {
 	 * If the unit type is a ranger then we ignore the danger component of the score some of the time
 	 */
 	private static double locationScore(double[][] gravityMap, int x, int y, Unit u) {
-		if (u.unitType() == UnitType.Ranger && currentRound % 20 < 3 && mapState.danger(x, y) < u.health()) {
+		if (u.unitType() == UnitType.Ranger && mapState.danger(x, y) < u.health() && unitsToHeal.size() < healers.size()) {
 			return gravityMap[x][y] + mapState.danger(x, y);
 		}
 		return gravityMap[x][y];
@@ -1071,6 +1075,9 @@ public class Player {
             				int id = garrison.get(j);
             				zone.myLandUnits[gc.unit(id).unitType().ordinal()]++;
             			}
+            			
+            			if (unit.unitType().equals(UnitType.Factory) && unit.isFactoryProducing() > 0) //See what we are producing and count that
+            				zone.myLandUnits[unit.factoryUnitType().ordinal()]++;
             		} else {
                 		if (unit.unitType() == UnitType.Healer)
                 			healers.add(here);
@@ -1086,6 +1093,8 @@ public class Player {
             		switch (unit.unitType()) {
 	            		case Factory:
 	            			enemyStructures.add(here);
+	            			if (unit.isFactoryProducing() > 0)
+	            				zone.enemyUnits[unit.factoryUnitType().ordinal()]++;
 	            			break;
 	            		case Ranger:
 	            			combatants.add(here);
@@ -1520,7 +1529,7 @@ public class Player {
     	if (FloodRound - currentRound < 20)
     		return; //No point adding more to the build queue as we don't have time to evacuate
     	
-    	UnitType produce = null;
+    	UnitType produce = zone.strategy;
     	int combatUnits = zone.myLandUnits[UnitType.Ranger.ordinal()] + zone.myLandUnits[UnitType.Mage.ordinal()] + zone.myLandUnits[UnitType.Knight.ordinal()];
     	int healers = unitsToHeal.size()*2;
     	if (healers > combatUnits / 2)
@@ -1528,20 +1537,15 @@ public class Player {
     	else if (healers < combatUnits / 4)
     		healers = combatUnits / 4;
     	
-    	if (haltProduction) { //We can only override if we have no workers
-    		if (zone.myLandUnits[UnitType.Worker.ordinal()] == 0)
-    			produce = UnitType.Worker;
-    	} else {
-    		produce = zone.strategy;
-	    	if (zone.myLandUnits[UnitType.Worker.ordinal()] < Math.min(karbonite.maxWorkers(zoneId), (2+combatUnits)/4))
-	    		produce = UnitType.Worker;
-	    	else if (zone.myLandUnits[UnitType.Healer.ordinal()] < healers)
-		    	produce = UnitType.Healer;
-	    	else if ((zone.myLandUnits[UnitType.Ranger.ordinal()] + 1)*2 <= zone.myLandUnits[UnitType.Mage.ordinal()])
-	    		produce = UnitType.Ranger; //Mages need the vision range of rangers
-    	}
+		if (zone.myLandUnits[UnitType.Worker.ordinal()] == 0 ||
+				zone.myLandUnits[UnitType.Worker.ordinal()] < Math.min(karbonite.maxWorkers(zoneId), (2+combatUnits)/4))
+    		produce = UnitType.Worker;
+    	else if (zone.myLandUnits[UnitType.Healer.ordinal()] < healers)
+	    	produce = UnitType.Healer;
+    	else if ((zone.myLandUnits[UnitType.Ranger.ordinal()] + 1)*2 <= zone.myLandUnits[UnitType.Mage.ordinal()])
+    		produce = UnitType.Ranger; //Mages need the vision range of rangers
     	
-    	if (produce != null && gc.canProduceRobot(fid, produce)) {
+    	if ((produce == UnitType.Worker || !haltProduction) && gc.canProduceRobot(fid, produce)) {
 			gc.produceRobot(fid, produce);
 			debug(2, "Factory starts producing a " + produce);
 		}
