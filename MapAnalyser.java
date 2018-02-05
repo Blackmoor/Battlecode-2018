@@ -54,13 +54,15 @@ public class MapAnalyser {
 		 * On Mars we add the asteroids info
 		 */		
 		if (map.getPlanet() == Planet.Mars) {
-			for (int round=0; round<1000; round++) {
+			for (int round=1; round<=1000; round++) {
 				if (gc.asteroidPattern().hasAsteroid(round)) {
 					MapLocation where = gc.asteroidPattern().asteroid(round).getLocation();
-					long karbonite = gc.asteroidPattern().asteroid(round).getKarbonite();
-					int zoneID = zoneArray[where.getX()][where.getY()];
-					if (zoneID > 0)
-						zones.get(zoneID-1).karbonite += karbonite;
+					if (map.onMap(where)) {
+						long karbonite = gc.asteroidPattern().asteroid(round).getKarbonite();
+						int zoneID = zoneArray[where.getX()][where.getY()];
+						if (zoneID > 0)
+							zones.get(zoneID-1).karbonite += karbonite;
+					}
 				}
 			}
 		}
