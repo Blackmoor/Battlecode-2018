@@ -26,6 +26,7 @@ public class Player {
     private static Random randomness = new Random(74921);
     private static Karbonite karbonite;
     private static boolean conquered = false; //Set to true once we have conquered earth
+    private static boolean haltProduction = false; //Set to true when we need to save up for a rocket or we have too many units to process
  
     private static final long LastRound = 1000;
     private static final long EvacuationRound = 600;
@@ -115,34 +116,135 @@ public class Player {
 	/*
 	 * Work out our build priorities
 	 * We aim to have enough rockets for everyone on earth - each zone is calculated separately
-	 * If any zone needs a rocket then we start saving
+	 * If any zone needs a rocket we halt production if required until we have enough karbonite
+	 * If we have the karbonite to build a structure, work out the best location next to a worker and ripple from it's neighbours
 	 */
-    private static void updateBuildPriorities() {
-    	if (myPlanet == Planet.Mars) { //We don't want to interfere with Earth
+    private static void updateBuildStrategy() {
+    	if (myPlanet == Planet.Mars) { //We don't build on Mars
     		return;
     	}
     	
 		int totalRocketsNeeded = 0;
+		long k = gc.karbonite();		
+		haltProduction = (units.allUnits().size() > 400);
 		
-    	for (int z=0; z < zones; z++) {
-    		ZoneState zone = zoneState[z];
-    		int rocketsNeeded = zone.rocketsNeeded(currentRound);
-    		totalRocketsNeeded += rocketsNeeded;
-    		
-			//We save for rockets in 3 situations
-			//1. We have rocket tech and need more rockets
-			//2. We don't have rocket tech but have conquered earth
-			//3. We don't have rocket tech but too many units to process
-			if (gc.researchInfo().getLevel(UnitType.Rocket) > 0)
-				saveForRocket = (zone.myLandUnits[UnitType.Worker.ordinal()] > 0 && rocketsNeeded > 0);
-			else
-				saveForRocket = (zone.myLandUnits[UnitType.Worker.ordinal()] > 0 &&
-						(units.allUnits().size() > 400 || conquered) &&
-						totalRocketsNeeded * bc.bcUnitTypeBlueprintCost(UnitType.Rocket) > gc.karbonite());
+    	for (int z=0; z < zones; z++)
+    		totalRocketsNeeded += zoneState[z].rocketsNeeded(currentRound);	
+    	
+    	if (gc.researchInfo().getLevel(UnitType.Rocket) > 0) //We have the tech - save up
+    		haltProduction |= (totalRocketsNeeded * bc.bcUnitTypeBlueprintCost(UnitType.Rocket) > k);
+    	else //We don't have the tech yet - only save up if we have conquered Earth
+    		haltProduction |= conquered;
+    	
+    	if (haltProduction)
+    		return;
+    	
+    	if (gc.researchInfo().getLevel(UnitType.Rocket) > 0)
+    		k -= totalRocketsNeeded*bc.bcUnitTypeBlueprintCost(UnitType.Rocket); //We need to spend this much on rockets
+    	
+    	if (k < bc.bcUnitTypeBlueprintCost(UnitType.Factory))
+    		return;
+    	
+    	/*
+		 * We ensure the zone with the least factories builds first
+		 */
+		int minFactories = 10000;
+		int minZone = -1;
+		for (int z=0; z<zones; z++) {
+			if (zoneState[z].myLandUnits[UnitType.Worker.ordinal()] > 0 && zoneState[z].myLandUnits[UnitType.Factory.ordinal()] < minFactories) {
+				minFactories = zoneState[z].myLandUnits[UnitType.Factory.ordinal()];
+				minZone = z;
+			}
+		}
+		
+		int threshold = (400 - Math.min(400, (int)gc.karbonite())) / 30; //We want lots of open neighbours but override this if we have lots of karbonite			
+    	
+		Unit bestWorker = null; //best worker to build
+		Direction dir = null; //Direction for best worker to build in
+		int bestScore = threshold; //Points for space, workers and lack of enemies
+		
+		Unit bestWorkerWithSacrifice = null;
+		Direction dirWithSacrifice = null;
+		int bestScoreWithSacrifice = threshold;
+
+		for (Unit w: workers) {
+			MapLocation loc = w.location().mapLocation();
+			if (map.zone(loc) == minZone) {					
+				int baseScore = 0;
+				for (Unit u:senseNearbyUnits(loc, 50, myTeam)) {
+					if (u.team() == myTeam) {
+						switch(u.unitType()) {
+						case Factory:
+						case Rocket:
+							if (u.location().mapLocation().distanceSquaredTo(loc) < 3)
+								baseScore-=2;
+							break;
+						case Worker:
+							baseScore++;
+							break;
+						default:
+							break;
+						}
+					} else {
+						switch (u.unitType()) {
+						case Knight:
+						case Ranger:
+						case Mage:
+						case Factory:
+							baseScore-=2;
+							break;
+						default:
+							break;
+						}
+					}
+				}
+		    	
+		    	LinkedList<MapLocation> options = allOpenNeighbours(loc);
+		    	boolean sacrifice = (options.size() == 0);
+		    	if (sacrifice) //We'd need a sacriface to build from here
+		    		options = map.passableNeighbours(loc);
+				
+				for (MapLocation m: options) {
+					if (mapState.danger(m.getX(), m.getY()) == 0) {
+						int score = baseScore + map.passableNeighbours(m).size();						   				    		
+		    			if (karbonite.karboniteAt(m) > 0)
+		    				score--;
+
+		    			if (sacrifice) {
+		    				if (score > bestScoreWithSacrifice) {
+			    				bestScoreWithSacrifice = score;
+			    				dirWithSacrifice = loc.directionTo(m);
+			    				bestWorkerWithSacrifice = w;
+		    				}
+		    			} else if (score > bestScore) {
+		    				bestScore = score;
+		    				dir = loc.directionTo(m);
+		    				bestWorker = w;
+		    			}
+		    		}
+				}
+			}
+		}
+		
+		if (bestWorker == null && bestWorkerWithSacrifice != null && zoneState[minZone].myLandUnits[UnitType.Factory.ordinal()] == 0) {
+			MapLocation buildLoc = bestWorkerWithSacrifice.location().mapLocation().add(dirWithSacrifice);
+			Unit s = units.unitAt(buildLoc);
+			gc.disintegrateUnit(s.id());
+			bestWorker = bestWorkerWithSacrifice;
+			dir = dirWithSacrifice;
+		}
+		
+		if (bestWorker != null && gc.canBlueprint(bestWorker.id(), UnitType.Factory, dir)) {
+			MapLocation m = bestWorker.location().mapLocation().add(dir);
+			gc.blueprint(bestWorker.id(), UnitType.Factory, dir);
+			units.updateUnit(m);
+			units.updateUnit(bestWorker.id());
+			debug(2, "worker blueprinting factory");
+			zoneState[minZone].myLandUnits[UnitType.Factory.ordinal()]++;
 			
-			if (saveForRocket)
-				return;
-    	}
+			LinkedList<MapLocation> workSpace = map.passableNeighbours(m);
+			ripple(workerMap, workSpace, 20, UnitType.Worker, workSpace.size(), -1);
+		}
     }
     
     /*
@@ -549,7 +651,7 @@ public class Player {
     		
     		for (MapLocation h:healers)
     			healing.addAll(map.allLocationsWithin(h, 0, 30)); //All areas in range but ignoring our location
-    		ripple(damagedMap, healing, 50, null, 1000, -1);
+    		ripple(damagedMap, healing, 10, null, 1000, -1);
     	}
     	
     	if (myPlanet != Planet.Earth) //We process rockets next - nothing to do on Mars
@@ -824,42 +926,16 @@ public class Player {
     }   
 	
 	/*
-	 * Find the best location to build
-	 * We want safe open space around us if possible and not adjacent to other structures
-	 * We want to avoid enemy factories (as they will be active before us)
-	 * If we have lots of workers nearby then this is good - TODO
+	 * Find the best location to build a rocket
 	 */
-	private static MapLocation bestBuildLocation(MapLocation loc) {
-		LinkedList<MapLocation> options = allOpenNeighbours(loc);
-		MapLocation result = null;
-		
-		if (!options.isEmpty()) {
-			//Score each option.
-			int bestScore = (400 - Math.min(400, (int)gc.karbonite())) / 30; //We want lots of open neighbours but override this if we have lots of karbonite			
-	    	for (MapLocation test: options) {      		
-	    		if (mapState.danger(test.getX(), test.getY()) == 0) {
-	    			int score = 0;
-	    			//Count the passable neighbours that don't contain a structure
-	    			for (MapLocation m: map.passableNeighbours(test)) {  
-	    				Unit u = units.unitAt(m);
-	    				if (u == null)
-	    					score++;
-	    				else if (u.unitType() == UnitType.Factory || u.unitType() == UnitType.Rocket)
-	    					score--;
-	    				else
-	    					score++;
-	    			}
-	    			if (karbonite.karboniteAt(test) > 0)
-	    				score--;
-	    			
-	    			if (score > bestScore) {
-	    				bestScore = score;
-	    				result = test;
-	    			}
-	    		}
-	    	}
-		}  
-		return result;
+	private static MapLocation bestRocketLocation(MapLocation loc) {
+		for (MapLocation test: allOpenNeighbours(loc)) { 
+    		if (mapState.danger(test.getX(), test.getY()) == 0) {
+    			return test;
+    		}
+    	}
+
+		return null;
 	}
     
 	/*
@@ -919,27 +995,27 @@ public class Player {
     	if (myPlanet != Planet.Earth || ri.hasNextInQueue())
     		return;
     	
-    	if (currentRound > 200 && ri.getLevel(UnitType.Rocket) == 0) { //Time for rockets
+    	if (currentRound > 200 && ri.getLevel(UnitType.Rocket) == 0) { //Time for rockets (50)
     		gc.queueResearch(UnitType.Rocket);
-    	} else if (ri.getLevel(zoneState[0].strategy) == 0 && zoneState[0].strategy != UnitType.Knight) { //We get the level 1 for our preferred unit first
+    	} else if (ri.getLevel(zoneState[0].strategy) == 0 && zoneState[0].strategy != UnitType.Knight) { //We get the level 1 for our preferred unit first (25)
     		gc.queueResearch(zoneState[0].strategy);
-    	} else if (ri.getLevel(UnitType.Healer) < 2) { //We upgrade Healers twice before finishing off our preferred units
+    	} else if (ri.getLevel(UnitType.Healer) < 2) { //We upgrade Healers twice before finishing off our preferred units (25 + 100)
     		gc.queueResearch(UnitType.Healer);
-    	} else if (ri.getLevel(UnitType.Ranger) < 3) { // Build up to sniping
+    	} else if (ri.getLevel(UnitType.Ranger) < 3) { // Build up to sniping (25+100+200)
     		gc.queueResearch(zoneState[0].strategy);
-    	} else if (ri.getLevel(UnitType.Healer) < 3) { // Overcharge is only useful once we have snipe
+    	} else if (ri.getLevel(UnitType.Healer) < 3) { // Overcharge is only useful once we have snipe (100)
     		gc.queueResearch(UnitType.Healer);
-    	} else if (ri.getLevel(UnitType.Mage) < 4) {
+    	} else if (ri.getLevel(UnitType.Mage) < 4) { // More damage and blink (25+75+100+75)
     		gc.queueResearch(UnitType.Mage);
     	}
     }
     
 
     private static int[] mySpaceUnits = new int[UnitType.values().length]; //Counts of how many units we have indexed by unit type (ordinal)
-    private static boolean saveForRocket = false;
     private static LinkedList<MapLocation> enemyLocs = new LinkedList<MapLocation>(); //Start position of the enemy - used in place of the exploreZone at the start of the game
     private static boolean separated = false; //Set to true if we start off in different zones to the enemy
     private static LinkedList<Unit> enemies = new LinkedList<Unit>(); //List of all enemy units in sight
+    private static LinkedList<Unit> workers = new LinkedList<Unit>(); //List of all our workers
     private static LinkedList<MapLocation> combatants = new LinkedList<MapLocation>(); //List of all combat worthy enemy units in sight
     private static LinkedList<MapLocation> enemyStructures = new LinkedList<MapLocation>();
     private static LinkedList<MapLocation> enemyHealers = new LinkedList<MapLocation>();
@@ -968,6 +1044,7 @@ public class Player {
     	enemyRangers.clear();
     	enemyOthers.clear();
     	healers.clear();
+    	workers.clear();
     	unitsToHeal.clear();
 		
     	VecUnit known = units.allUnits();
@@ -996,9 +1073,11 @@ public class Player {
             			}
             		} else {
                 		if (unit.unitType() == UnitType.Healer)
-                			healers.add(unit.location().mapLocation());
+                			healers.add(here);
+                		if (unit.unitType() == UnitType.Worker)
+                			workers.add(unit);
                 		if (unit.health() < unit.maxHealth())
-            				unitsToHeal.add(unit.location().mapLocation());
+            				unitsToHeal.add(here);
             		}
             	} else { //enemies
             		enemies.add(unit);
@@ -1006,50 +1085,50 @@ public class Player {
 
             		switch (unit.unitType()) {
 	            		case Factory:
-	            			enemyStructures.add(unit.location().mapLocation());
+	            			enemyStructures.add(here);
 	            			break;
 	            		case Ranger:
-	            			combatants.add(unit.location().mapLocation());
-	            			enemyRangers.add(unit.location().mapLocation());
-	            			for (MapLocation m:map.allLocationsWithin(unit.location().mapLocation(), unit.rangerCannotAttackRange(), unit.attackRange())) {
+	            			combatants.add(here);
+	            			enemyRangers.add(here);
+	            			for (MapLocation m:map.allLocationsWithin(here, unit.rangerCannotAttackRange(), unit.attackRange())) {
 	            				int x = m.getX(), y = m.getY();
 	            				mapState.addDanger(x, y, unit.damage());
 	            			}
 	            			break;
 	            		case Knight: //Increase radius to 10 to account for them moving then attacking
-	            			combatants.add(unit.location().mapLocation());
-	            			enemyOthers.add(unit.location().mapLocation());
-	            			for (MapLocation m:map.allLocationsWithin(unit.location().mapLocation(), -1, 10)) {
+	            			combatants.add(here);
+	            			enemyOthers.add(here);
+	            			for (MapLocation m:map.allLocationsWithin(here, -1, 10)) {
 	            				int x = m.getX(), y = m.getY();
 	            				mapState.addDanger(x, y, unit.damage()/2);
 	            			}
-	            			for (MapLocation m:map.passableNeighbours(unit.location().mapLocation())) {
+	            			for (MapLocation m:map.passableNeighbours(here)) {
 	            				int x = m.getX(), y = m.getY();
 	            				mapState.addDanger(x, y, unit.damage()/2);
 	            			}
 	            			break;
 	            		case Mage: //TODO - Increase radius to account for splash damage
-	            			combatants.add(unit.location().mapLocation());
-	            			enemyOthers.add(unit.location().mapLocation());
-	            			for (MapLocation m:map.allLocationsWithin(unit.location().mapLocation(), -1, unit.attackRange())) {
+	            			combatants.add(here);
+	            			enemyOthers.add(here);
+	            			for (MapLocation m:map.allLocationsWithin(here, -1, unit.attackRange())) {
 	            				int x = m.getX(), y = m.getY();
 	            				mapState.addDanger(x, y, unit.damage());
 	            			}
 	            			break;
 	            		case Rocket: //These damage neighbours when they take off (so only dangerous on Earth)
-	            			enemyStructures.add(unit.location().mapLocation());
+	            			enemyStructures.add(here);
 	            			if (myPlanet == Planet.Earth && unit.structureIsBuilt() > 0) { 
-	            				for (MapLocation m:map.passableNeighbours(unit.location().mapLocation())) {
+	            				for (MapLocation m:map.passableNeighbours(here)) {
 		            				int x = m.getX(), y = m.getY();
 		            				mapState.addDanger(x, y, 100);
 		            			}
 	            			}
 	            			break;
 	            		case Healer:
-	            			enemyHealers.add(unit.location().mapLocation());
+	            			enemyHealers.add(here);
 	            			break;
 	            		default:
-	            			enemyOthers.add(unit.location().mapLocation());
+	            			enemyOthers.add(here);
 	            			break;
             		}
             	}
@@ -1125,7 +1204,7 @@ public class Player {
     	
     	initGravityMaps(); //Gives each a random noise level and includes the danger areas
     	
-    	updateBuildPriorities();
+    	updateBuildStrategy();
     }
     
     private static void manageWorker(Unit unit) {
@@ -1158,86 +1237,53 @@ public class Player {
 		}
 
 		/*
-		 * Now check to see if we want to blueprint a factory or a rocket
+		 * Now check to see if we want to blueprint a rocket
 		 */		
-    	long k = gc.karbonite(); 	
-    	   
-		if (unit.workerHasActed() == 0 && myPlanet == Planet.Earth &&
-				k >= Math.min(bc.bcUnitTypeBlueprintCost(UnitType.Rocket),
-											bc.bcUnitTypeBlueprintCost(UnitType.Factory))) {
+    	long k = gc.karbonite(); 	   	   
+		if (unit.workerHasActed() == 0 && myPlanet == Planet.Earth && zone.rocketsNeeded(currentRound) > 0 &&
+				k >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket)) {
 	    	MapLocation buildLoc = null;
 			
 	    	/*
 	    	 * Sometimes we block ourselves in due to excessive population (or a small planet)
 	    	 * If we want to build a rocket and we have no rockets then we destroy an adjacent unit and build there!
-	    	 */
-	    	boolean wantRocket = (zone.rocketsNeeded(currentRound) > 0 && zone.myLandUnits[UnitType.Rocket.ordinal()] == 0 &&
-	    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket));
-	    	boolean wantFactory = (zone.myLandUnits[UnitType.Factory.ordinal()] == 0 &&
-	    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory));
-	    	
-	    	int spaces = 0;
-	    	for (MapLocation m: map.passableNeighbours(loc)) {
-	    		if (units.unitAt(m) == null)
-	    			spaces++;
-	    	}
-	    	boolean needSacrifice = (spaces == 0 && (wantRocket || wantFactory));
-	    	
-	    	if (needSacrifice) {
-	    		Unit suicide = null;
-	    		for (Unit u: senseNearbyUnits(loc, 2, myTeam)) {
-	    			if (u.id() == unit.id())
-	    				continue; //Don't kill ourself
-	    			suicide = u;
-	    			if (u.unitType() != UnitType.Factory)
-	    				break;
-	    		}
-	    		if (suicide != null) {
-	    			debug(2, "Destroying " + suicide.unitType() + " to make room for a new structure");
-	    			buildLoc = suicide.location().mapLocation();
-	    			units.removeUnit(buildLoc);
-	    			gc.disintegrateUnit(suicide.id());
-	    		}
+	    	 */   
+	    	if (zone.myLandUnits[UnitType.Rocket.ordinal()] == 0) { //We have no rockets but need one
+		    	int spaces = 0;
+		    	for (MapLocation m: map.passableNeighbours(loc)) {
+		    		if (units.unitAt(m) == null)
+		    			spaces++;
+		    	}
+		    	
+		    	if (spaces == 0) { //We need a sacrifice
+		    		Unit suicide = null;
+		    		for (Unit u: senseNearbyUnits(loc, 2, myTeam)) {
+		    			if (u.id() == unit.id())
+		    				continue; //Don't kill ourself
+		    			suicide = u;
+		    			if (u.unitType() != UnitType.Factory)
+		    				break;
+		    		}
+		    		if (suicide != null) {
+		    			debug(2, "Destroying " + suicide.unitType() + " to make room for a new structure");
+		    			buildLoc = suicide.location().mapLocation();
+		    			units.removeUnit(buildLoc);
+		    			gc.disintegrateUnit(suicide.id());
+		    		}
+		    	}
 	    	}
 	    	
 	    	if (buildLoc == null)
-	    		buildLoc = bestBuildLocation(loc);		
+	    		buildLoc = bestRocketLocation(loc);		
 
 	    	if (buildLoc != null) {
 	    		Direction dir = loc.directionTo(buildLoc);
-				if (zone.rocketsNeeded(currentRound) > 0 &&
-		    			k >= bc.bcUnitTypeBlueprintCost(UnitType.Rocket) &&
-						gc.canBlueprint(id, UnitType.Rocket, dir)) {
+				if (gc.canBlueprint(id, UnitType.Rocket, dir)) {
 					gc.blueprint(id, UnitType.Rocket, dir);
 					units.updateUnit(buildLoc);
 					unit = units.updateUnit(id);
 					debug(2, "worker blueprinting rocket");
 					zone.myLandUnits[UnitType.Rocket.ordinal()]++;
-					k = gc.karbonite();
-					updateBuildPriorities();
-				}
-				
-				/*
-				 * We ensure the zone with the least factories builds first
-				 */
-				int minFactories = 10000;
-				int minZone = -1;
-				for (int z=0; z<zones; z++) {
-					if (zoneState[z].myLandUnits[UnitType.Worker.ordinal()] > 0 && zoneState[z].myLandUnits[UnitType.Factory.ordinal()] < minFactories) {
-						minFactories = zoneState[z].myLandUnits[UnitType.Factory.ordinal()];
-						minZone = z;
-					}
-				}
-				
-				if (!saveForRocket && k >= bc.bcUnitTypeBlueprintCost(UnitType.Factory) &&
-						map.zone(loc) == minZone &&
-						gc.canBlueprint(id, UnitType.Factory, dir)) {
-					gc.blueprint(id, UnitType.Factory, dir);
-					units.updateUnit(buildLoc);
-					unit = units.updateUnit(id);
-					debug(2, "worker blueprinting factory");
-					zone.myLandUnits[UnitType.Factory.ordinal()]++;
-					updateBuildPriorities();
 				}
 	    	}
 		}
@@ -1265,7 +1311,7 @@ public class Player {
 		}
 		
 		//Check to see if we should replicate
-    	boolean replicate = (!saveForRocket && zone.myLandUnits[UnitType.Worker.ordinal()] < karbonite.maxWorkers(map.zone(loc)));
+    	boolean replicate = (!haltProduction && zone.myLandUnits[UnitType.Worker.ordinal()] < karbonite.maxWorkers(map.zone(loc)));
     	if (myPlanet == Planet.Earth) {
     		if (karbonite.locations().size() == 0 && zone.myLandUnits[UnitType.Factory.ordinal()] == 0)
     			replicate = false; //Save up for a factory
@@ -1474,7 +1520,7 @@ public class Player {
     	if (FloodRound - currentRound < 20)
     		return; //No point adding more to the build queue as we don't have time to evacuate
     	
-    	UnitType produce = zone.strategy;
+    	UnitType produce = null;
     	int combatUnits = zone.myLandUnits[UnitType.Ranger.ordinal()] + zone.myLandUnits[UnitType.Mage.ordinal()] + zone.myLandUnits[UnitType.Knight.ordinal()];
     	int healers = unitsToHeal.size()*2;
     	if (healers > combatUnits / 2)
@@ -1482,14 +1528,20 @@ public class Player {
     	else if (healers < combatUnits / 4)
     		healers = combatUnits / 4;
     	
-    	if (zone.myLandUnits[UnitType.Worker.ordinal()] < Math.min(karbonite.maxWorkers(zoneId), combatUnits/4))
-    		produce = UnitType.Worker;
-    	else if (zone.myLandUnits[UnitType.Healer.ordinal()] < healers)
-    		produce = UnitType.Healer;
-    	else if ((zone.myLandUnits[UnitType.Ranger.ordinal()] + 1)*2 < zone.myLandUnits[UnitType.Mage.ordinal()])
-    		produce = UnitType.Ranger; //Mages need the vision range of rangers
+    	if (haltProduction) { //We can only override if we have no workers
+    		if (zone.myLandUnits[UnitType.Worker.ordinal()] == 0)
+    			produce = UnitType.Worker;
+    	} else {
+    		produce = zone.strategy;
+	    	if (zone.myLandUnits[UnitType.Worker.ordinal()] < Math.min(karbonite.maxWorkers(zoneId), (2+combatUnits)/4))
+	    		produce = UnitType.Worker;
+	    	else if (zone.myLandUnits[UnitType.Healer.ordinal()] < healers)
+		    	produce = UnitType.Healer;
+	    	else if ((zone.myLandUnits[UnitType.Ranger.ordinal()] + 1)*2 <= zone.myLandUnits[UnitType.Mage.ordinal()])
+	    		produce = UnitType.Ranger; //Mages need the vision range of rangers
+    	}
     	
-    	if ((!saveForRocket || produce == UnitType.Worker) && gc.canProduceRobot(fid, produce)) {
+    	if (produce != null && gc.canProduceRobot(fid, produce)) {
 			gc.produceRobot(fid, produce);
 			debug(2, "Factory starts producing a " + produce);
 		}
@@ -1525,7 +1577,6 @@ public class Player {
     		}
     	}
     	
-    	unit = moveUnit(unit, false);
     	unit = splashAttack(unit);
     	if (unit == null)
     		return; //We killed ourself
