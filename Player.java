@@ -1017,12 +1017,10 @@ public class Player {
    
     	if (ri.getLevel(UnitType.Healer) < 3) { // Get Overcharge ASAP (25+100+100)
     		gc.queueResearch(UnitType.Healer);
-    	} else if (ri.getLevel(UnitType.Mage) < 2) { // More damage (25+75)
+    	} else if (ri.getLevel(UnitType.Mage) < 4) { // More damage (25+75+100+75)
     		gc.queueResearch(UnitType.Mage);
     	} else if (ri.getLevel(UnitType.Rocket) == 0) { //Time for rockets (50)
     		gc.queueResearch(UnitType.Rocket);
-    	} else if (ri.getLevel(UnitType.Mage) < 4) { // More damage and blink (100+75)
-    		gc.queueResearch(UnitType.Mage);
     	} else if (ri.getLevel(UnitType.Ranger) < 3) { // Build up to sniping (25+100+200)
     		gc.queueResearch(UnitType.Ranger);
     	}
