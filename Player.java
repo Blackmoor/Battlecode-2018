@@ -944,11 +944,20 @@ public class Player {
 	
 	/*
 	 * Find the best location to build a rocket
+	 * Don't pick somewhere adjacent to another rocket
 	 */
 	private static MapLocation bestRocketLocation(MapLocation loc) {
-		for (MapLocation test: allOpenNeighbours(loc)) { 
+		for (MapLocation test: allOpenNeighbours(loc)) {
     		if (mapState.danger(test.getX(), test.getY()) == 0) {
-    			return test;
+    			boolean hasRocket = false;
+    			for (MapLocation m: map.passableNeighbours(test)) {
+    				Unit u = units.unitAt(m);
+    				if (u != null && u.unitType().equals(UnitType.Rocket))
+    					hasRocket = true;
+    			}
+    			
+    			if (!hasRocket)
+    				return test;
     		}
     	}
 
@@ -1540,16 +1549,16 @@ public class Player {
     	 * We have an upper bound equal to the number of our combat unit and a miniumum of 1/3 of that
     	 */
     	
-    	if (FloodRound - currentRound < 20)
+    	if (FloodRound - currentRound < 30)
     		return; //No point adding more to the build queue as we don't have time to evacuate
     	
     	UnitType produce = zone.strategy;    	
     	int combatUnits = zone.myLandUnits[UnitType.Ranger.ordinal()] + zone.myLandUnits[UnitType.Mage.ordinal()] + zone.myLandUnits[UnitType.Knight.ordinal()];
     	int healers = unitsToHeal.size()*2;
-    	if (healers > combatUnits / 2)
-    		healers = combatUnits / 2;
-    	else if (healers < combatUnits / 4)
-    		healers = combatUnits / 4;
+    	if (healers > combatUnits)
+    		healers = combatUnits;
+    	else if (healers < combatUnits / 5)
+    		healers = combatUnits / 5;
     	
 		if (zone.myLandUnits[UnitType.Worker.ordinal()] == 0 ||
 				zone.myLandUnits[UnitType.Worker.ordinal()] < Math.min(karbonite.maxWorkers(zoneId), (2+combatUnits)/4))
