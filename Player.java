@@ -126,7 +126,7 @@ public class Player {
     	
 		int totalRocketsNeeded = 0;
 		long k = gc.karbonite();		
-		haltProduction = (units.allUnits().size() > 400);
+		haltProduction = (units.allUnits().size() > 500);
 		
     	for (int z=0; z < zones; z++)
     		totalRocketsNeeded += zoneState[z].rocketsNeeded(currentRound);	
@@ -157,7 +157,7 @@ public class Player {
 			}
 		}
 		
-		int threshold = (400 - Math.min(400, (int)gc.karbonite())) / 30; //We want lots of open neighbours but override this if we have lots of karbonite			
+		int threshold = (400 - Math.min(400, (int)gc.karbonite())) / 20; //We want lots of open neighbours but override this if we have lots of karbonite			
     	
 		Unit bestWorker = null; //best worker to build
 		Direction dir = null; //Direction for best worker to build in
@@ -171,20 +171,10 @@ public class Player {
 			MapLocation loc = w.location().mapLocation();
 			if (map.zone(loc) == minZone) {					
 				int baseScore = 0;
-				for (Unit u:senseNearbyUnits(loc, 50, myTeam)) {
+				for (Unit u:senseNearbyUnits(loc, 50, null)) {
 					if (u.team() == myTeam) {
-						switch(u.unitType()) {
-						case Factory:
-						case Rocket:
-							if (u.location().mapLocation().distanceSquaredTo(loc) < 3)
-								baseScore-=2;
-							break;
-						case Worker:
+						if (u.unitType().equals(UnitType.Worker))
 							baseScore++;
-							break;
-						default:
-							break;
-						}
 					} else {
 						switch (u.unitType()) {
 						case Knight:
@@ -201,12 +191,18 @@ public class Player {
 		    	
 		    	LinkedList<MapLocation> options = allOpenNeighbours(loc);
 		    	boolean sacrifice = (options.size() == 0);
-		    	if (sacrifice) //We'd need a sacriface to build from here
+		    	if (sacrifice) //We'd need a sacrifice to build from here
 		    		options = map.passableNeighbours(loc);
 				
 				for (MapLocation m: options) {
 					if (mapState.danger(m.getX(), m.getY()) == 0) {
-						int score = baseScore + map.passableNeighbours(m).size();						   				    		
+						int score = baseScore;
+						for (MapLocation n:map.passableNeighbours(m)) {
+							score++; //Each open neighbour is good for getting workers here
+							Unit u = units.unitAt(n);
+							if (u != null && u.unitType().equals(UnitType.Factory))
+								score-=4;
+						}
 		    			if (karbonite.karboniteAt(m) > 0)
 		    				score--;
 
@@ -242,7 +238,14 @@ public class Player {
 			debug(2, "worker blueprinting factory");
 			zoneState[minZone].myLandUnits[UnitType.Factory.ordinal()]++;
 			
-			LinkedList<MapLocation> workSpace = map.passableNeighbours(m);
+			LinkedList<MapLocation> workSpace = new LinkedList<MapLocation>();
+			
+			for (MapLocation p: map.passableNeighbours(m)) {
+				Unit u = units.unitAt(p);
+				if (u == null || (!u.unitType().equals(UnitType.Factory) && !u.unitType().equals(UnitType.Rocket)))
+					workSpace.add(p);
+			}
+
 			ripple(workerMap, workSpace, 20, UnitType.Worker, workSpace.size(), -1);
 		}
     }
@@ -314,9 +317,9 @@ public class Player {
     	if (!unit.location().isOnMap() || !gc.isMoveReady(id))
     		return unit;
     	
-    	Direction d = bestMove(unit, getGravityMap(unit.unitType()), false);   	
+    	Direction d = bestMove(unit, getGravityMap(unit.unitType()), false);  
     	if (d == null)
-    		return unit; //No where better
+    		return unit; //Nowhere better
     	
     	MapLocation loc = unit.location().mapLocation();
 		MapLocation dest = loc.add(d);
@@ -520,6 +523,13 @@ public class Player {
     private static long healerMapLastUpdated = -1;
     private static long knightMapLastUpdated = -1;
     
+    private static boolean isMatch(MapLocation here, UnitType match, boolean ignoreWorkers) {
+    	Unit unit = units.unitAt(here);
+		return (unit != null && unit.team() == myTeam &&
+				(match == null || match == unit.unitType()) &&
+				(unit.unitType() != UnitType.Worker || !ignoreWorkers));
+    }
+    
     /*
      * Ripple out from the given edge (set of points) until a given number of our units have been found scoring each tile as we go - the nearer the higher the score
      * For each location we mark it as open (i.e. on the list to process), closed (processed) or unseen
@@ -537,14 +547,17 @@ public class Player {
     	
     	/*
     	 * Mark all valid locations as processed (seen)
-    	 * Remove duplicates
+    	 * Remove duplicates.
+    	 * Count matching units
     	 */
     	for (Iterator<MapLocation> iterator = edge.iterator(); iterator.hasNext();) {
     	    MapLocation m = iterator.next();
     	    int x = m.getX(), y = m.getY();
-    	    if (!open[x][y] && map.passable(x, y))
+    	    if (!open[x][y] && map.passable(x, y)) {
     	    	open[x][y] = true;
-    	    else
+    	    	if (isMatch(m, match, ignoreWorkers))
+					matchCount++;
+    	    } else
     			iterator.remove();
     	}
 
@@ -574,19 +587,8 @@ public class Player {
 	        				m[x][y] += gravity;
         		}
         		
-        		Unit unit = units.unitAt(me);
-				if (unit != null && unit.team() == myTeam &&
-						(match == null || match == unit.unitType()) &&
-						(unit.unitType() != UnitType.Worker || !ignoreWorkers)) {
-					matchCount++;
-					if (matchCount >= max) { //We have reached the cutoff point
-						debug(3, "Ripple match count met: complete at distance " + distance);
-						return;
-					}
-					if (distance == 1 && match != null) { //This is a starting tile that is already occupied by the right unit
-						addNeighbours = false;
-					}
-				} 
+        		if (distance == 1 && match != null && isMatch(me, match, ignoreWorkers)) //This is a starting tile that is already occupied by the right unit
+					addNeighbours = false;
 	       		
     			//We add adjacent tiles to the next search if they are traversable
 				//To avoid pile ups we check to see if a unit is stuck at a location and potentially delay adding in the neighbours
@@ -594,6 +596,8 @@ public class Player {
         			for (MapLocation t:map.passableNeighbours(me)) {
 		    			if (!open[t.getX()][t.getY()]) {
 			    			nextEdge.add(t);
+			    			if (isMatch(t, match, ignoreWorkers))
+			    				matchCount++;
 			    			open[t.getX()][t.getY()] = true;
 			    			debug(4, "ripple Added " + t);
 		    			}
@@ -603,6 +607,10 @@ public class Player {
     		debug(4, "Ripple distance " + distance + " edge size = " + nextEdge.size());
     		
     		edge = nextEdge;
+    		if (matchCount >= max) {
+    			debug(3, "Ripple match count met at distance " + distance);
+    			return;
+    		}
     	}
     	
     	debug(3, "Ripple queue empty: complete at distance " + distance);
@@ -636,7 +644,7 @@ public class Player {
     			if (u != null && u.team() == myTeam && u.unitType() == UnitType.Factory)
     				noise = 0; //Don't randomly walk into factories
     			for (double[][] me:allMaps) {
-	    			me[x][y] = noise- mapState.danger(x, y);    			
+	    			me[x][y] = noise - mapState.danger(x, y);    			
 		    	}
 	    	}
     	}
@@ -811,7 +819,14 @@ public class Player {
 			workerCount += zoneWorkers;
 			//Add blueprints and damaged buildings - this is usually a small list so do them individually
 			for (MapLocation m: zone.unitsToBuild) {
-				LinkedList<MapLocation> workSpace = map.passableNeighbours(m);
+				LinkedList<MapLocation> workSpace = new LinkedList<MapLocation>();
+				
+				for (MapLocation p: map.passableNeighbours(m)) {
+					Unit u = units.unitAt(p);
+					if (u == null || (!u.unitType().equals(UnitType.Factory) && !u.unitType().equals(UnitType.Rocket)))
+						workSpace.add(p);
+				}
+
 				ripple(workerMap, workSpace, 20, UnitType.Worker, Math.min(zoneWorkers, workSpace.size()), -1);
 			}
     	}
@@ -821,6 +836,7 @@ public class Player {
     	for (MapLocation m:karbonite.locations())
     		if (mapState.danger(m.getX(), m.getY()) == 0)
     			safe.add(m);
+
 		ripple(workerMap, safe, 10, UnitType.Worker, workerCount, -1);
     }
     
@@ -874,8 +890,9 @@ public class Player {
         karbonite = new Karbonite(gc, map, zones);
     	
     	zoneState = new ZoneState[zones];
-    	for (int z=0; z<zones; z++)
+    	for (int z=0; z<zones; z++) {
     		zoneState[z] = new ZoneState();
+    	}
     	
     	if (myPlanet == Planet.Mars) {
     		mars = analysis;
@@ -915,9 +932,9 @@ public class Player {
         	} else { //We share the zones	        	
         		for (int z=0; z<zones; z++) {
         			if (analysis.zones.get(z).tiles.size() < 60)
-        				zoneState[z].strategy = UnitType.Knight;
+        				zoneState[analysis.zones.get(z).id].strategy = UnitType.Knight;
         			else if (analysis.zones.get(z).tiles.size() < 400)
-        				zoneState[z].strategy = UnitType.Mage;
+        				zoneState[analysis.zones.get(z).id].strategy = UnitType.Mage;
         		}
         	}
     	}
@@ -982,6 +999,7 @@ public class Player {
     			best = d;
     		}
     	}
+
     	debug (4, "is " + best + " with a score of " + bestScore);
 		return best;
     }
@@ -997,11 +1015,11 @@ public class Player {
    
     	if (ri.getLevel(UnitType.Healer) < 3) { // Get Overcharge ASAP (25+100+100)
     		gc.queueResearch(UnitType.Healer);
-    	} else if (ri.getLevel(UnitType.Mage) < 1) { // More damage (25)
+    	} else if (ri.getLevel(UnitType.Mage) < 2) { // More damage (25+75)
     		gc.queueResearch(UnitType.Mage);
     	} else if (ri.getLevel(UnitType.Rocket) == 0) { //Time for rockets (50)
     		gc.queueResearch(UnitType.Rocket);
-    	} else if (ri.getLevel(UnitType.Mage) < 4) { // More damage and blink (25+75+100+75)
+    	} else if (ri.getLevel(UnitType.Mage) < 4) { // More damage and blink (100+75)
     		gc.queueResearch(UnitType.Mage);
     	} else if (ri.getLevel(UnitType.Ranger) < 3) { // Build up to sniping (25+100+200)
     		gc.queueResearch(UnitType.Ranger);
@@ -1215,7 +1233,8 @@ public class Player {
     		return;
     	
     	int id = unit.id();
-		//Do we want to move to a better location
+    	
+    	//Do we want to move to a better location
         unit = moveUnit(unit, false);            
         
 		MapLocation loc = unit.location().mapLocation();
@@ -1322,6 +1341,9 @@ public class Player {
     		replicate = (currentRound > FloodRound); //Might as well spend all our karbonite
     	}
     
+    	
+    	unit = moveUnit(unit, true);
+    	
 		//We can replicate even if we have acted
     	Direction dir = bestMove(unit, getGravityMap(unit.unitType()), true);
     	if (dir != null && replicate && gc.canReplicate(id, dir)) {
@@ -1332,8 +1354,6 @@ public class Player {
     		Unit newWorker = units.updateUnit(loc.add(dir));
     		processUnit(newWorker);
     	}
-    	
-    	unit = moveUnit(unit, true);
     }
     
     /***********************************************************************************
@@ -1523,7 +1543,7 @@ public class Player {
     	if (FloodRound - currentRound < 20)
     		return; //No point adding more to the build queue as we don't have time to evacuate
     	
-    	UnitType produce = zone.strategy;
+    	UnitType produce = zone.strategy;    	
     	int combatUnits = zone.myLandUnits[UnitType.Ranger.ordinal()] + zone.myLandUnits[UnitType.Mage.ordinal()] + zone.myLandUnits[UnitType.Knight.ordinal()];
     	int healers = unitsToHeal.size()*2;
     	if (healers > combatUnits / 2)
@@ -1636,8 +1656,12 @@ public class Player {
 	    		break; //We killed ourself
 	    	
 	        unit = moveUnit(unit, true);
-	        if (unit.location().isOnMap())
-	    		unit = splashAttack(unit);
+	        if (!unit.location().isOnMap())
+	        	break;
+
+	    	unit = splashAttack(unit);
+	    	if (unit == null)
+	    		break; //We killed ourself
 	        
 	        if (overcharge) {
 	        	//Check to see if we did anything (moved, blinked, fired)
