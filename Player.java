@@ -1349,10 +1349,7 @@ public class Player {
     	} else {
     		replicate = (currentRound > FloodRound); //Might as well spend all our karbonite
     	}
-    
-    	
-    	unit = moveUnit(unit, true);
-    	
+
 		//We can replicate even if we have acted
     	Direction dir = bestMove(unit, getGravityMap(unit.unitType()), true);
     	if (dir != null && replicate && gc.canReplicate(id, dir)) {
@@ -1363,6 +1360,8 @@ public class Player {
     		Unit newWorker = units.updateUnit(loc.add(dir));
     		processUnit(newWorker);
     	}
+      	
+    	unit = moveUnit(unit, true);	
     }
     
     /***********************************************************************************
