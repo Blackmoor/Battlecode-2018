@@ -180,8 +180,10 @@ public class Player {
 						case Knight:
 						case Ranger:
 						case Mage:
-						case Factory:
 							baseScore-=2;
+							break;
+						case Factory:
+							baseScore-=4;
 							break;
 						default:
 							break;
