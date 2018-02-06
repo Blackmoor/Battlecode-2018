@@ -75,6 +75,10 @@ public class MapState {
 		 return danger[x][y];
 	 }
 	 
+	 public int danger(MapLocation m) {
+		 return danger[m.getX()][m.getY()];
+	 }
+	 
 	 public LinkedList<MapLocation> exploreZone() {
 		 return exploreZone;
 	 }

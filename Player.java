@@ -636,9 +636,7 @@ public class Player {
     			if (u != null && u.team() == myTeam && u.unitType() == UnitType.Factory)
     				noise = 0; //Don't randomly walk into factories
     			for (double[][] me:allMaps) {
-	    			me[x][y] = noise;    			
-	    			if (me != knightMap) //Knights ignore danger zones
-	    				me[x][y] -= mapState.danger(x, y);
+	    			me[x][y] = noise- mapState.danger(x, y);    			
 		    	}
 	    	}
     	}
@@ -757,7 +755,6 @@ public class Player {
     /*
      * Healers need to move towards damaged allies (not structures)
      * and away from enemies
-     * TODO - stop ripple at a set distance from the enemies
      */
     private static void updateHealerMap() {
     	if (healerMapLastUpdated == currentRound) //We have already done it
@@ -883,9 +880,6 @@ public class Player {
     	if (myPlanet == Planet.Mars) {
     		mars = analysis;
     	} else { //On earth we process mars to work out landing zones
-        	if (karbonite.remaining() > 2500)
-            	gc.queueResearch(UnitType.Worker); // Increase harvest amount
-        	
     		mars = new MapAnalyser(gc, gc.startingMap(Planet.Mars), null);
     	 		
     		/*
@@ -942,14 +936,16 @@ public class Player {
 		return null;
 	}
     
+	private static boolean ignoreDanger = false; //This can be set by a unit to allow it to ignore danger this turn
+	
 	/*
 	 * Returns the location score from the given gravity map
 	 * If the unit type is a ranger then we ignore the danger component of the score some of the time
 	 */
 	private static double locationScore(double[][] gravityMap, int x, int y, Unit u) {
-		if (u.unitType() == UnitType.Ranger && mapState.danger(x, y) < u.health() && unitsToHeal.size() < healers.size()) {
+		if (ignoreDanger)
 			return gravityMap[x][y] + mapState.danger(x, y);
-		}
+
 		return gravityMap[x][y];
 	}
 	
@@ -998,19 +994,17 @@ public class Player {
     	
     	if (myPlanet != Planet.Earth || ri.hasNextInQueue())
     		return;
-    	
-    	if (currentRound > 200 && ri.getLevel(UnitType.Rocket) == 0) { //Time for rockets (50)
+   
+    	if (ri.getLevel(UnitType.Healer) < 3) { // Get Overcharge ASAP (25+100+100)
+    		gc.queueResearch(UnitType.Healer);
+    	} else if (ri.getLevel(UnitType.Mage) < 1) { // More damage (25)
+    		gc.queueResearch(UnitType.Mage);
+    	} else if (ri.getLevel(UnitType.Rocket) == 0) { //Time for rockets (50)
     		gc.queueResearch(UnitType.Rocket);
-    	} else if (ri.getLevel(zoneState[0].strategy) == 0 && zoneState[0].strategy != UnitType.Knight) { //We get the level 1 for our preferred unit first (25)
-    		gc.queueResearch(zoneState[0].strategy);
-    	} else if (ri.getLevel(UnitType.Healer) < 2) { //We upgrade Healers twice before finishing off our preferred units (25 + 100)
-    		gc.queueResearch(UnitType.Healer);
-    	} else if (ri.getLevel(UnitType.Ranger) < 3) { // Build up to sniping (25+100+200)
-    		gc.queueResearch(zoneState[0].strategy);
-    	} else if (ri.getLevel(UnitType.Healer) < 3) { // Overcharge is only useful once we have snipe (100)
-    		gc.queueResearch(UnitType.Healer);
     	} else if (ri.getLevel(UnitType.Mage) < 4) { // More damage and blink (25+75+100+75)
     		gc.queueResearch(UnitType.Mage);
+    	} else if (ri.getLevel(UnitType.Ranger) < 3) { // Build up to sniping (25+100+200)
+    		gc.queueResearch(UnitType.Ranger);
     	}
     }
     
@@ -1544,6 +1538,8 @@ public class Player {
 	    	produce = UnitType.Healer;
     	else if ((zone.myLandUnits[UnitType.Ranger.ordinal()] + 1)*2 <= zone.myLandUnits[UnitType.Mage.ordinal()])
     		produce = UnitType.Ranger; //Mages need the vision range of rangers
+    	else if (currentRound > 180 && zone.myLandUnits[UnitType.Mage.ordinal()] < Math.min(3,  zone.myLandUnits[UnitType.Ranger.ordinal()])) //We are soon to get overcharge
+    		produce = UnitType.Mage;  		
     	
     	if ((produce == UnitType.Worker || !haltProduction) && gc.canProduceRobot(fid, produce)) {
 			gc.produceRobot(fid, produce);
@@ -1553,41 +1549,119 @@ public class Player {
     	unit = units.updateUnit(fid); //Update garrison info
     }
     
+    private static LinkedList<Unit> overchargeHealers(Unit unit) {
+    	LinkedList<Unit> helpers = new LinkedList<Unit>();
+    	
+    	for (Unit h: senseNearbyUnits(unit.location().mapLocation(), 30, myTeam)) {
+    		if (h.unitType().equals(UnitType.Healer) && gc.isOverchargeReady(h.id())) {
+    			helpers.add(h);
+    		}
+    	}
+    	
+    	return helpers;
+    }
+    
+    private static Unit furthestUnit(Unit me, LinkedList<Unit> others) {
+    	Unit furthest = null;
+    	for (Unit u: others) {
+    		if (furthest == null || me.location().mapLocation().distanceSquaredTo(u.location().mapLocation()) > 
+    									me.location().mapLocation().distanceSquaredTo(furthest.location().mapLocation()))
+    			furthest = u;
+    	}
+    	return furthest;
+    }
+    
+    /*
+     * Check to see if there are enough healers in range to allow us to get in multiple attacks
+     */
+    private static boolean doOvercharge(Unit unit) {
+    	if (gc.researchInfo().getLevel(UnitType.Healer) < 3)
+    		return false; 	
+    	
+    	LinkedList<Unit> helpers = overchargeHealers(unit);
+    	if (helpers.size() < 3)
+    		return false;
+    	
+    	int targets = senseNearbyUnits(unit.location().mapLocation(), 70, otherTeam).size();
+    	
+    	if (targets < 3)
+    		return false;
+    	
+    	return true;
+    }
+    
+    /*
+     * Mages are great targets for overcharge - so good we code specifically for them and get the healers to
+     * overcharge us from within this function.
+     */
     private static void manageMage(Unit unit) {
     	int id = unit.id();
     	
     	if (!unit.location().isOnMap())
     		return;
     	
-    	//Do we want to blink to a better location
-    	if (gc.isAttackReady(id) && gc.isBlinkReady(id)) {
-    		MapLocation here = unit.location().mapLocation();
-    		//We can blink to best location in sight range
-    		updateMageMap();
-    		double bestScore = mageMap[here.getX()][here.getY()];
-    		MapLocation bestOption = here;
-    		for (MapLocation o:map.allLocationsWithin(here, -1, unit.abilityRange())) {
-    			if (mageMap[o.getX()][o.getY()] > bestScore && map.passable(o) &&
-    					units.unitAt(o) == null) {
-    				bestScore = mageMap[o.getX()][o.getY()];
-    				bestOption = o;
-    			}
-    		}
-    		if (here.distanceSquaredTo(bestOption) >= 2) {
-    			units.removeUnit(here);
-    			gc.blink(id, bestOption);
-    			unit = units.updateUnit(id);
-    			debug(2, "Mage is blinking to " + bestOption);
-    		}
-    	}
+    	boolean overcharge = doOvercharge(unit);   	
+    	if (overcharge)
+    		ignoreDanger = true;
     	
-    	unit = splashAttack(unit);
-    	if (unit == null)
-    		return; //We killed ourself
+    	long initialHeat = unit.attackHeat() + unit.movementHeat();
+    	if (unit.isAbilityUnlocked() > 0)
+    		initialHeat += unit.abilityCooldown();
     	
-        unit = moveUnit(unit, true);
-        if (unit.location().isOnMap())
-    		splashAttack(unit);
+    	do {
+	    	//Do we want to blink to a better location
+	    	if (gc.isAttackReady(id) && gc.isBlinkReady(id)) {
+	    		MapLocation here = unit.location().mapLocation();
+	    		//We can blink to best location in sight range
+	    		updateMageMap();
+	    		double bestScore = mageMap[here.getX()][here.getY()];
+	    		MapLocation bestOption = here;
+	    		for (MapLocation o:map.allLocationsWithin(here, -1, unit.abilityRange())) {
+	    			if (mageMap[o.getX()][o.getY()] > bestScore && map.passable(o) &&
+	    					mapState.visible(o.getX(), o.getY()) &&	units.unitAt(o) == null) {
+	    				bestScore = mageMap[o.getX()][o.getY()];
+	    				bestOption = o;
+	    			}
+	    		}
+	    		if (here.distanceSquaredTo(bestOption) >= 2) {
+	    			units.removeUnit(here);
+	    			gc.blink(id, bestOption);
+	    			unit = units.updateUnit(id);
+	    			debug(2, "Mage is blinking to " + bestOption);
+	    		}
+	    	}
+	    	
+	    	unit = splashAttack(unit);
+	    	if (unit == null)
+	    		break; //We killed ourself
+	    	
+	        unit = moveUnit(unit, true);
+	        if (unit.location().isOnMap())
+	    		unit = splashAttack(unit);
+	        
+	        if (overcharge) {
+	        	//Check to see if we did anything (moved, blinked, fired)
+	        	long myHeat = unit.attackHeat() + unit.movementHeat();
+	        	if (unit.isAbilityUnlocked() > 0)
+	        		myHeat += unit.abilityCooldown();
+	        	
+	        	if (myHeat <= initialHeat) //We did nothing
+	        		overcharge = false;
+	        	else {
+		        	Unit helper = furthestUnit(unit, overchargeHealers(unit));
+		        	if (helper != null) {
+		        		gc.overcharge(helper.id(), unit.id());
+		        		initialHeat = 0; //These are reset by the overcharge
+		        		debug(1, currentRound + ": Overcharging mage @ " + unit.location().mapLocation());
+		        		units.updateUnit(helper.id());
+		        		unit = units.updateUnit(unit.id());
+		        	} else
+		        		overcharge = false;
+	        	}
+	        }
+    	} while (overcharge);
+    	
+    	ignoreDanger = false;
     }
     
     /*
@@ -1598,7 +1672,7 @@ public class Player {
     private static void manageRanger(Unit unit) {
     	if (!unit.location().isOnMap())
     		return;
-    	
+
     	/*
     	 * Sniping
     	 * To start a snipe we must 
@@ -1619,8 +1693,9 @@ public class Player {
     	 * If a ranger is doing nothing it might as well snipe at locations that are passable but not visible
     	 */   
     	
+    	
     	MapLocation here = unit.location().mapLocation();
-    	boolean inDanger = (mapState.danger(here.getX(), here.getY()) > 0);
+    	boolean inDanger = (mapState.danger(here) > 0);
     	boolean canAttack = gc.isAttackReady(unit.id());
     	boolean attacked = false;
     	boolean sniping = (unit.rangerIsSniping() > 0);
@@ -1648,15 +1723,21 @@ public class Player {
     		}
     	}
     	
+		if (mapState.danger(here) < unit.health() && unitsToHeal.size() < healers.size())
+			ignoreDanger = true;
+		
         unit = moveUnit(unit, true);
         if (unit.location().isOnMap())
         	attackWeakest(unit);
+        
+        ignoreDanger = false; //Reset the global!
     }
     
     private static void manageKnight(Unit unit) {
     	if (!unit.location().isOnMap())
     		return;
     	
+    	ignoreDanger = true;
     	if (unit.abilityHeat() < 10 && unit.isAbilityUnlocked() > 0) { //Check for javelin targets
         	int target = bestJavelinTarget(unit);
         	if (target > 0 && gc.canJavelin(unit.id(), target)) {
@@ -1669,7 +1750,8 @@ public class Player {
     	unit = attackWeakest(unit); 
         unit = moveUnit(unit, true);
         if (unit.location().isOnMap())
-    		unit = attackWeakest(unit);       
+    		unit = attackWeakest(unit); 
+        ignoreDanger = false;
     }
     
     /*
@@ -1702,33 +1784,9 @@ public class Player {
 	    	}
     	}
     	
-    	if (gc.isOverchargeReady(unit.id())) {
-    		long mostHeat = 90; //No point wasting our ability for a small gain
-    		Unit bestTarget = null;
-	    	for (Unit u:senseNearbyUnits(unit.location().mapLocation(), unit.abilityRange(), myTeam)) {
-	    		long heat = 0;
-	    		switch (u.unitType()) {
-	    		case Ranger:
-	    		case Knight:
-	    		case Mage:
-	    			heat = u.attackHeat() + u.movementHeat() + u.abilityHeat();
-	    			break;
-	    		default: //No point overcharging these units
-	    			break;
-	    		}	    		
-	    		if (heat > mostHeat && gc.canOvercharge(unit.id(), u.id())) {
-	    			bestTarget = u;
-	    			mostHeat = heat;
-	    		}
-	    	}
-	    	if (bestTarget != null) {
-				gc.overcharge(unit.id(), bestTarget.id());
-				units.updateUnit(bestTarget.id());
-				unit = units.updateUnit(unit.id());
-				debug(2, "Overcharging " + bestTarget.unitType() + " @ " + bestTarget.location().mapLocation());
-				processUnit(bestTarget);
-	    	}
-    	}
+    	/*
+    	 * Overcharge is handled by the units requesting it
+    	 */
     	
     	unit = moveUnit(unit, true);    	
     }
