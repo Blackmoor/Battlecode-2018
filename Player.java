@@ -28,7 +28,6 @@ public class Player {
     private static boolean conquered = false; //Set to true once we have conquered earth
     private static boolean haltProduction = false; //Set to true when we need to save up for a rocket or we have too many units to process
  
-    private static final long LastRound = 1000;
     private static final long EvacuationRound = 600;
     private static final long FloodRound = 749;
     private static final int debugLevel = 0;
@@ -53,9 +52,9 @@ public class Player {
     private static void runPlanet() {  	
         while (true) {
         	try {
-        		long now = System.currentTimeMillis();
+        		//long now = System.currentTimeMillis();
         		currentRound = gc.round();
-        		debug(1, "Time left at start of round " + currentRound + " = " + gc.getTimeLeftMs());
+        		//debug(1, "Time left at start of round " + currentRound + " = " + gc.getTimeLeftMs());
        
         		if (gc.getTimeLeftMs() > 500) {	        		
 		            updateUnits();
@@ -70,10 +69,10 @@ public class Player {
 		            }
         		}   
 	            
-        		debug(1, "Round " + currentRound + " took " + (System.currentTimeMillis() - now) + " ms");
+        		//debug(1, "Round " + currentRound + " took " + (System.currentTimeMillis() - now) + " ms");
         	} catch (Exception e) {
         		//Ignore
-        		debug(0, "Caught exception " + e);
+        		System.out.println("Caught exception " + e);
         		e.printStackTrace();
         	}
         	gc.nextTurn();
@@ -108,10 +107,12 @@ public class Player {
 		}
     }
  
+    /*
     private static void debug(int level, String s) {
     	if (level <= debugLevel)
     		System.out.println(s);
     }
+    */
     
 	/*
 	 * Work out our build priorities
@@ -237,7 +238,7 @@ public class Player {
 			gc.blueprint(bestWorker.id(), UnitType.Factory, dir);
 			units.updateUnit(m);
 			units.updateUnit(bestWorker.id());
-			debug(2, "worker blueprinting factory");
+			//debug(2, "worker blueprinting factory");
 			zoneState[minZone].myLandUnits[UnitType.Factory.ordinal()]++;
 			
 			LinkedList<MapLocation> workSpace = new LinkedList<MapLocation>();
@@ -337,7 +338,7 @@ public class Player {
 				gc.load(structure.id(), id);
 				units.updateUnit(structure.id());
 				unit = gc.unit(unit.id());
-				debug(2, "Loading " + unit.unitType() + " into " + structure.unitType());
+				//debug(2, "Loading " + unit.unitType() + " into " + structure.unitType());
 			}
     	}
 		return unit;
@@ -405,7 +406,7 @@ public class Player {
     	if (best == null)
     		return unit;
     	
-		debug(2, "Mage firing on " + best.unitType());
+		//debug(2, "Mage firing on " + best.unitType());
 		gc.attack(unit.id(), best.id());
 		
 		//Update all affected units
@@ -449,7 +450,7 @@ public class Player {
     	if (best == null)
     		return unit;
     	
-		debug(2, unit.unitType() + " firing on " + best.unitType());
+		//debug(2, unit.unitType() + " firing on " + best.unitType());
 		gc.attack(unit.id(), best.id());
 		units.updateUnit(best.id());
 		return units.updateUnit(id);	
@@ -545,7 +546,7 @@ public class Player {
     	int matchCount = 0; //How many units of the right type have we seen
     	boolean ignoreWorkers = (gravityMap == null && currentRound <= 700); //Rockets don't want workers before round 700
     	
-    	debug(3, "ripple: starting points " + edge.size() + " value " + points + " stop when " + max + " " + match + " or at dist " + stop);
+    	//debug(3, "ripple: starting points " + edge.size() + " value " + points + " stop when " + max + " " + match + " or at dist " + stop);
     	
     	/*
     	 * Mark all valid locations as processed (seen)
@@ -571,7 +572,7 @@ public class Player {
     	while (!edge.isEmpty()) {
     		distance++;
     		if (stop > 0 && distance >= stop) {
-    			debug(3, "Ripple stop distance " + stop + " reached");
+    			//debug(3, "Ripple stop distance " + stop + " reached");
     			return;
     		}
     		double gravity = points/(distance*distance);
@@ -601,21 +602,21 @@ public class Player {
 			    			if (isMatch(t, match, ignoreWorkers))
 			    				matchCount++;
 			    			open[t.getX()][t.getY()] = true;
-			    			debug(4, "ripple Added " + t);
+			    			//debug(4, "ripple Added " + t);
 		    			}
 		    		}
         		}
     		}
-    		debug(4, "Ripple distance " + distance + " edge size = " + nextEdge.size());
+    		//debug(4, "Ripple distance " + distance + " edge size = " + nextEdge.size());
     		
     		edge = nextEdge;
     		if (matchCount >= max) {
-    			debug(3, "Ripple match count met at distance " + distance);
+    			//debug(3, "Ripple match count met at distance " + distance);
     			return;
     		}
     	}
     	
-    	debug(3, "Ripple queue empty: complete at distance " + distance);
+    	//debug(3, "Ripple queue empty: complete at distance " + distance);
     }
     
     public static void ripple(double[][] gravityMap, MapLocation t, double points, UnitType match, int max, int stop) {
@@ -838,7 +839,8 @@ public class Player {
 		 * Split these into group according to how much karbonite is there
 		 */
     	final int groups = 5;
-    	LinkedList<MapLocation>[] safe = new LinkedList[groups];
+    	@SuppressWarnings("unchecked")
+		LinkedList<MapLocation>[] safe = new LinkedList[groups];
     	for (int i=0; i<groups; i++)
     		safe[i] = new LinkedList<MapLocation>();
     	
@@ -854,7 +856,7 @@ public class Player {
     	}
     	
     	for (int i=0; i < groups; i++)
-    		ripple(workerMap, safe[i], (i+1)*5, UnitType.Worker, workerCount, -1);
+    		ripple(workerMap, safe[i], (i+1)*3, UnitType.Worker, workerCount, -1);
     }
     
     private static double[][] getGravityMap(UnitType type) {
@@ -941,7 +943,7 @@ public class Player {
     			if (!enemyZones.contains(zone))
     				separated = true;
         	
-        	debug(1, "Earth has " + zones + " zones, separated = " + separated);
+        	//debug(1, "Earth has " + zones + " zones, separated = " + separated);
         	
         	if (separated) {
         		//Get to mars quickly
@@ -1012,7 +1014,7 @@ public class Player {
     	double bestScore = (move?-100000:locationScore(gravityMap, myLoc.getX(), myLoc.getY(), t));
     	LinkedList<MapLocation> options = null;
     	
-    	debug(4, "bestMove from " + myLoc + " current score " + bestScore);
+    	//debug(4, "bestMove from " + myLoc + " current score " + bestScore);
 		if (isStructure) //We are looking to unload from here (as a structure can't move!)
 			options = allOpenNeighbours(myLoc);
 		else
@@ -1026,7 +1028,7 @@ public class Player {
     		}
     	}
 
-    	debug (4, "is " + best + " with a score of " + bestScore);
+    	//debug (4, "is " + best + " with a score of " + bestScore);
 		return best;
     }
     
@@ -1229,7 +1231,7 @@ public class Player {
     	if (!conquered && myPlanet == Planet.Earth && mapState.explored() &&
     			enemies.size() == 0 && units.allUnits().size() > 0) {
     		conquered = true;
-    		debug(0, "Earth is conquered on round " + currentRound);
+    		//debug(0, "Earth is conquered on round " + currentRound);
     	}
     	
     	//Look for any rockets arriving on Mars in the next 10 turns and mark the tiles
@@ -1239,7 +1241,7 @@ public class Player {
 	    		VecRocketLanding landings = gc.rocketLandings().landingsOn(currentRound+r);
 	    		for (int l=0; l<landings.size(); l++) {
 	    			MapLocation site = landings.get(l).getDestination();
-	    			debug(2, "Clearing area for landing on round " + (currentRound+r) + " at " + site);
+	    			//debug(2, "Clearing area for landing on round " + (currentRound+r) + " at " + site);
 	    			mapState.addDanger(site.getX(), site.getY(), 100); //TODO find real value from interface
 	    			for (MapLocation m:map.neighbours(site))
 	    				mapState.addDanger(m.getX(), m.getY(), 100);
@@ -1272,12 +1274,12 @@ public class Player {
 				if (gc.canBuild(id, other.id())) {
 					gc.build(id, other.id());
 					unit = units.updateUnit(id);
-					debug(2, "worker building");
+					//debug(2, "worker building");
 				}
 				if (other.health() < other.maxHealth() && gc.canRepair(id, other.id())) {
 					gc.repair(id, other.id());
 					unit = units.updateUnit(id);
-  					debug(2, "worker is repairing");
+  					//debug(2, "worker is repairing");
 				}
 			}
 		}
@@ -1311,7 +1313,7 @@ public class Player {
 		    				break;
 		    		}
 		    		if (suicide != null) {
-		    			debug(2, "Destroying " + suicide.unitType() + " to make room for a new structure");
+		    			//debug(2, "Destroying " + suicide.unitType() + " to make room for a new structure");
 		    			buildLoc = suicide.location().mapLocation();
 		    			units.removeUnit(buildLoc);
 		    			gc.disintegrateUnit(suicide.id());
@@ -1328,7 +1330,7 @@ public class Player {
 					gc.blueprint(id, UnitType.Rocket, dir);
 					units.updateUnit(buildLoc);
 					unit = units.updateUnit(id);
-					debug(2, "worker blueprinting rocket");
+					//debug(2, "worker blueprinting rocket");
 					zone.myLandUnits[UnitType.Rocket.ordinal()]++;
 				}
 	    	}
@@ -1350,7 +1352,7 @@ public class Player {
 				if (gc.canHarvest(id, d)) {
 					gc.harvest(id, d);
 					unit = units.updateUnit(id);
-					debug(2, "worker harvesting");
+					//debug(2, "worker harvesting");
 					karbonite.harvest(best, unit);
 				}
 			}
@@ -1369,7 +1371,7 @@ public class Player {
     	Direction dir = bestMove(unit, getGravityMap(unit.unitType()), true);
     	if (dir != null && replicate && gc.canReplicate(id, dir)) {
     		gc.replicate(id, dir);
-    		debug(2, "worker replicating");
+    		//debug(2, "worker replicating");
     		unit = units.updateUnit(id);
     		zone.myLandUnits[UnitType.Worker.ordinal()]++;
     		Unit newWorker = units.updateUnit(loc.add(dir));
@@ -1469,12 +1471,12 @@ public class Player {
     					Unit u = units.unitAt(m);
     					if (u != null && gc.canLoad(id, u.id())) {
     						gc.load(id, u.id());
-    						debug(2, "Rocket is loading " + u.unitType() + " before launch");
+    						//debug(2, "Rocket is loading " + u.unitType() + " before launch");
     						units.removeUnit(m);
     						unit = units.updateUnit(id);
     					}
     				}
-    				debug(2, "Launching rocket " + id + " to " + dest);
+    				//debug(2, "Launching rocket " + id + " to " + dest);
     				gc.launchRocket(id, dest);
     				units.removeUnit(here);
     				mars.zones.get(marsZone).landingSites.remove(dest);
@@ -1490,7 +1492,7 @@ public class Player {
 	    			Direction dir = bestMove(unit, getGravityMap(UnitType.Worker), true);
 	    			if (dir != null && gc.canUnload(unit.id(), dir)) {
 	    				gc.unload(unit.id(), dir);
-	    				debug(2, "Unloading from rocket - passing through");
+	    				//debug(2, "Unloading from rocket - passing through");
 	    				MapLocation where = unit.location().mapLocation().add(dir);	        			
 	    	    		processUnit(units.updateUnit(where));
 	    			}
@@ -1503,7 +1505,7 @@ public class Player {
 	    		for (Direction dir:Direction.values()) {
 					if (dir != Direction.Center && gc.canUnload(id, dir)) {
 	    				gc.unload(id, dir);   		    	
-	    		    	debug(2, "unloading from rocket");
+	    		    	//debug(2, "unloading from rocket");
 	    		    	MapLocation where = unit.location().mapLocation().add(dir);
 	    	    		processUnit(units.updateUnit(where));
 					}
@@ -1547,7 +1549,7 @@ public class Player {
 			}
 			if (dir != null && gc.canUnload(unit.id(), dir)) {
 				gc.unload(unit.id(), dir);
-				debug(2, "Unloading from factory");
+				//debug(2, "Unloading from factory");
 				MapLocation where = unit.location().mapLocation().add(dir);	        			
 	    		processUnit(units.updateUnit(where));
 			}
@@ -1586,7 +1588,7 @@ public class Player {
     	
     	if ((produce == UnitType.Worker || !haltProduction) && gc.canProduceRobot(fid, produce)) {
 			gc.produceRobot(fid, produce);
-			debug(2, "Factory starts producing a " + produce);
+			//debug(2, "Factory starts producing a " + produce);
 		}
 
     	unit = units.updateUnit(fid); //Update garrison info
@@ -1670,7 +1672,7 @@ public class Player {
 	    			units.removeUnit(here);
 	    			gc.blink(id, bestOption);
 	    			unit = units.updateUnit(id);
-	    			debug(2, "Mage is blinking to " + bestOption);
+	    			//debug(2, "Mage is blinking to " + bestOption);
 	    		}
 	    	}
 	    	
@@ -1699,7 +1701,7 @@ public class Player {
 		        	if (helper != null) {
 		        		gc.overcharge(helper.id(), unit.id());
 		        		initialHeat = 0; //These are reset by the overcharge
-		        		debug(1, currentRound + ": Overcharging mage @ " + unit.location().mapLocation());
+		        		//debug(1, currentRound + ": Overcharging mage @ " + unit.location().mapLocation());
 		        		units.updateUnit(helper.id());
 		        		unit = units.updateUnit(unit.id());
 		        	} else
@@ -1765,12 +1767,12 @@ public class Player {
     			gc.beginSnipe(unit.id(), target);
     			unit = units.updateUnit(unit.id());
     			sniping = true;
-    			debug(2, "Sniping on " + target);
+    			//debug(2, "Sniping on " + target);
     			return;
     		}
     	}
     	
-		if (mapState.danger(here) < unit.health() && unitsToHeal.size() < healers.size())
+		if (!attacked && mapState.danger(here) < unit.health() && unitsToHeal.size() < healers.size())
 			ignoreDanger = true;
 		
         unit = moveUnit(unit, true);
@@ -1789,7 +1791,7 @@ public class Player {
         	int target = bestJavelinTarget(unit);
         	if (target > 0 && gc.canJavelin(unit.id(), target)) {
         		gc.javelin(unit.id(), target);
-        		debug(2, "Knight is throwing a javelin");
+        		//debug(2, "Knight is throwing a javelin");
         		unit = units.updateUnit(unit.id());
         	}
         }
@@ -1827,7 +1829,7 @@ public class Player {
 		    	gc.heal(unit.id(), unitToHeal.id());
 				units.updateUnit(unitToHeal.id());
 				unit = units.updateUnit(unit.id());
-				debug(2, "Healing " + unitToHeal.unitType() + " @ " + unitToHeal.location().mapLocation());
+				//debug(2, "Healing " + unitToHeal.unitType() + " @ " + unitToHeal.location().mapLocation());
 	    	}
     	}
     	
