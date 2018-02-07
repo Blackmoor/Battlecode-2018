@@ -833,13 +833,28 @@ public class Player {
 			}
     	}
     	
-		//Add Safe Karbonite deposits
-    	LinkedList<MapLocation> safe = new LinkedList<MapLocation>();
-    	for (MapLocation m:karbonite.locations())
-    		if (mapState.danger(m.getX(), m.getY()) == 0)
-    			safe.add(m);
-
-		ripple(workerMap, safe, 10, UnitType.Worker, workerCount, -1);
+		/*
+		 * Add Safe Karbonite deposits
+		 * Split these into group according to how much karbonite is there
+		 */
+    	final int groups = 5;
+    	LinkedList<MapLocation>[] safe = new LinkedList[groups];
+    	for (int i=0; i<groups; i++)
+    		safe[i] = new LinkedList<MapLocation>();
+    	
+    	for (MapLocation m:karbonite.locations()) {
+    		int x = m.getX(), y = m.getY();
+    		if (mapState.danger(x, y) == 0) {
+    			long k = karbonite.karboniteAt(x, y);
+    			int group = (int)k / 10;
+    			if (group >= groups)
+    				group = groups -1;
+    			safe[group].add(m);
+    		}
+    	}
+    	
+    	for (int i=0; i < groups; i++)
+    		ripple(workerMap, safe[i], (i+1)*5, UnitType.Worker, workerCount, -1);
     }
     
     private static double[][] getGravityMap(UnitType type) {
@@ -1651,7 +1666,7 @@ public class Player {
 	    				bestOption = o;
 	    			}
 	    		}
-	    		if (here.distanceSquaredTo(bestOption) >= 2) {
+	    		if (here.distanceSquaredTo(bestOption) > (overcharge?0:2)) {
 	    			units.removeUnit(here);
 	    			gc.blink(id, bestOption);
 	    			unit = units.updateUnit(id);
